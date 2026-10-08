@@ -1,0 +1,10 @@
+logs/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+.DS_Store
+# ne jamais committer de vrais fichiers du gestionnaire de réseau
+*.zip
