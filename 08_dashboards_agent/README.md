@@ -64,12 +64,21 @@ Recommencez pour chaque tuile. Les deux plus spectaculaires à montrer en premie
 ### Étape 4 · Rendre le dashboard filtrable
 Un filtre de dashboard est un **paramètre de requête** : on remplace une valeur écrite en dur par `{nom:Type}`. Toutes les tuiles qui utilisent le **même nom de paramètre** suivent le même filtre.
 
+On filtre avec des valeurs que tout le monde comprend :
+
+| Filtre | Ce qu'on tape | Exemples |
+|---|---|---|
+| `collectivite` | un morceau du nom, sans se soucier des majuscules | `Paris`, `Lyon`, `Lille`, `Toulouse`, `Bordeaux`, `Nantes` |
+| `jour` | une date au format AAAA-MM-JJ | `2026-10-15` |
+
+Derrière, la requête retrouve le territoire dans `ref.destinataire` (« Paris » → Métropole du Grand Paris) et filtre gold sur son code. On garde donc la vitesse de la clé de tri sans demander de code à personne.
+
 **4.1 · Mettre un paramètre dans chaque requête**
 1. Sur la tuile, cliquez sur les **trois points** (⋮) en haut à droite, puis sur le **crayon** à côté de la requête : l'Inline Editor s'ouvre.
-2. Remplacez la requête par sa version filtrable (ci-dessous). Dès que vous tapez `{code_epci:String}`, il apparaît dans le panneau **Query Parameters** à droite de l'éditeur.
-3. Donnez une valeur de test au paramètre (`200054781`), exécutez (▷), puis **enregistrez** (disquette). La requête enregistrée est mise à jour.
+2. Remplacez la requête par sa version filtrable (ci-dessous). Dès que vous tapez `{collectivite:String}`, il apparaît dans le panneau **Query Parameters** à droite de l'éditeur.
+3. Donnez une valeur de test au paramètre (`Paris`), exécutez (▷), puis **enregistrez** (disquette). La requête enregistrée est mise à jour.
 
-Versions filtrables, testées sur le service. Mêmes noms partout : `code_epci` pour le territoire, `jour` pour la date.
+Versions filtrables, testées sur le service pour les 6 métropoles (8 à 30 ms chacune) :
 
 ```sql
 -- Tuile 1 · courbe d'une collectivité, un jour donné
@@ -77,7 +86,8 @@ SELECT toTimeZone(ts, 'Europe/Paris') AS heure,
        round(sumIf(puissance_kw, grandeur = 'CONS') / 1000, 2) AS conso_mw,
        round(sumIf(puissance_kw, grandeur = 'PROD') / 1000, 2) AS prod_mw
 FROM gold.courbe_epci
-WHERE code_epci = {code_epci:String}
+WHERE code_epci IN (SELECT code_epci FROM ref.destinataire
+                    WHERE positionCaseInsensitiveUTF8(nom, {collectivite:String}) > 0)
   AND ts >  toDateTime({jour:Date}, 'Europe/Paris')
   AND ts <= toDateTime({jour:Date} + 1, 'Europe/Paris')
 GROUP BY heure ORDER BY heure;
@@ -85,52 +95,56 @@ GROUP BY heure ORDER BY heure;
 -- Tuile 2 · énergie par jour
 SELECT jour, round(conso_kwh / 1000, 1) AS conso_mwh, round(prod_kwh / 1000, 1) AS prod_mwh
 FROM gold.synthese_collectivite_jour
-WHERE id_destinataire IN (SELECT id_destinataire FROM ref.destinataire WHERE code_epci = {code_epci:String})
+WHERE positionCaseInsensitiveUTF8(collectivite, {collectivite:String}) > 0
 ORDER BY jour;
 
 -- Tuile 3 · top 10 communes
 SELECT dictGet('ref.dict_commune', 'nom', code_insee) AS commune, round(sum(energie_kwh) / 1000, 1) AS conso_mwh
 FROM gold.energie_commune_jour
-WHERE code_epci = {code_epci:String} AND grandeur = 'CONS'
+WHERE code_epci IN (SELECT code_epci FROM ref.destinataire
+                    WHERE positionCaseInsensitiveUTF8(nom, {collectivite:String}) > 0)
+  AND grandeur = 'CONS'
 GROUP BY code_insee ORDER BY conso_mwh DESC LIMIT 10;
 
 -- Tuile 5 · alertes du mois pour la collectivité (un jour précis est souvent vide)
 SELECT jour, commune, segment, kva_souscrit, round(pmax_va / 1000, 1) AS pmax_kva, depassement_pct
 FROM gold.alertes_pmax
-WHERE code_epci = {code_epci:String}
+WHERE code_epci IN (SELECT code_epci FROM ref.destinataire
+                    WHERE positionCaseInsensitiveUTF8(nom, {collectivite:String}) > 0)
 ORDER BY jour DESC, depassement_pct DESC;
 
 -- Tuile 6 · carte de chaleur
 SELECT toDate(ts - 1, 'Europe/Paris') AS jour, toHour(ts - 900, 'Europe/Paris') AS heure,
        round(avg(puissance_kw) / 1000, 2) AS conso_mw
 FROM gold.courbe_epci
-WHERE code_epci = {code_epci:String} AND grandeur = 'CONS'
+WHERE code_epci IN (SELECT code_epci FROM ref.destinataire
+                    WHERE positionCaseInsensitiveUTF8(nom, {collectivite:String}) > 0)
+  AND grandeur = 'CONS'
 GROUP BY jour, heure ORDER BY jour, heure;
 ```
 
-Les tuiles 4 (KPI) et 7 (poids des métropoles) restent globales : pas de paramètre.
+`positionCaseInsensitiveUTF8(nom, 'Paris') > 0` est vrai si « Paris » apparaît dans le nom, quelle que soit la casse. Le nom complet (`Métropole du Grand Paris`) marche aussi. Les tuiles 4 (KPI) et 7 (poids des métropoles) restent globales : pas de paramètre.
 
 **4.2 · Brancher les paramètres sur un filtre global**
 1. Rouvrez la tuile (⋮, puis Edit). Dans les réglages de la visualisation, chaque paramètre de la requête apparaît avec sa **source de valeur** (value source).
-2. Choisissez le type **filter** pour `code_epci` et pour `jour`.
+2. Choisissez le type **filter** pour `collectivite` et pour `jour`.
 3. Faites de même sur chaque tuile filtrable.
-4. Cliquez sur l'**entonnoir** dans la barre du haut : le panneau **Global filters** s'ouvre, avec un champ par paramètre.
-5. Tapez `200054781` (Grand Paris) et `2026-10-15` : toutes les tuiles se recalculent. Essayez `200046977` (Lyon), `243100518` (Toulouse), `200093201` (Lille), `244400404` (Nantes), `243300316` (Bordeaux).
+4. Cliquez sur l'**entonnoir** dans la barre du haut : le panneau **Global filters** s'ouvre, avec un champ `collectivite` et un champ `jour`.
+5. Tapez `Paris` et `2026-10-15` : toutes les tuiles se recalculent. Puis `Lyon`, `Toulouse`, `Lille`…
 
-**4.3 · Bonus : filtrer en cliquant sur une ligne**
-Plutôt que de taper un code, on peut choisir la collectivité dans une tuile table :
+**4.3 · Bonus : choisir la collectivité en cliquant sur son nom**
+Plus simple encore pour un public non technique : une tuile liste les métropoles, on clique sur un nom.
 1. Ajoutez une tuile **Table** « Choisir une collectivité » avec cette requête :
    ```sql
-   SELECT d.code_epci, d.nom AS collectivite, round(sum(s.conso_kwh) / 1000) AS conso_mwh
-   FROM gold.synthese_collectivite_jour AS s
-   INNER JOIN ref.destinataire AS d ON d.id_destinataire = s.id_destinataire
-   GROUP BY d.code_epci, d.nom
+   SELECT collectivite, round(sum(conso_kwh) / 1000) AS conso_mwh, round(100 * sum(prod_kwh) / sum(conso_kwh), 1) AS couverture_pct
+   FROM gold.synthese_collectivite_jour
+   GROUP BY collectivite
    ORDER BY conso_mwh DESC;
    ```
-2. Dans les réglages des autres tuiles, changez la **value source** du paramètre `code_epci` : au lieu de « filter », choisissez **cette table** et sa colonne `code_epci`.
-3. Cliquez sur une ligne de la table (par exemple Toulouse Métropole) : courbe, énergie, communes, alertes et heatmap basculent sur Toulouse.
+2. Dans les réglages des autres tuiles, changez la **value source** du paramètre `collectivite` : au lieu de « filter », choisissez **cette table** et sa colonne `collectivite`.
+3. Cliquez sur « Toulouse Métropole » dans la table : courbe, énergie, communes, alertes et heatmap basculent sur Toulouse.
 
-À observer : chaque changement de filtre relance les requêtes, et chacune répond en quelques millisecondes car elle filtre sur le début de la clé de tri de gold (`code_epci`).
+À observer : chaque changement de filtre relance les requêtes, et chacune répond en quelques millisecondes car elle finit par filtrer gold sur le début de sa clé de tri (`code_epci`).
 
 Partage : un collègue doit avoir accès aux **requêtes enregistrées** sous-jacentes, pas seulement au dashboard (bouton **Share** en haut).
 

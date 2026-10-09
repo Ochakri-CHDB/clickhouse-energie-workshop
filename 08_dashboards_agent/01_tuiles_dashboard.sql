@@ -9,8 +9,9 @@
 --  Le README de ce dossier explique comment en faire un dashboard.
 --
 --  Les tuiles sont écrites pour la Métropole du Grand Paris (EPCI 200054781,
---  destinataire 488903). Pour un dashboard interactif, remplacez la valeur
---  par un paramètre : {code_epci:String}, {jour:Date} (voir le README).
+--  destinataire 488903). Pour un dashboard filtrable par nom ("Paris",
+--  "Lyon"…) et par date, le README donne la version de chaque tuile avec
+--  les paramètres {collectivite:String} et {jour:Date}.
 -- =====================================================================
 
 
