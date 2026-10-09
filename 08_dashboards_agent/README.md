@@ -303,9 +303,9 @@ Mesuré (même requête, client natif et HTTPS direct) : 3 à 30 ms, ~8 200 lign
 
 ---
 
-## 3. ClickHouse Agents (25 min)
+## 3. ClickHouse Agents (35 min)
 
-Un agent ne devine pas le métier : il lit le schéma. On documente donc gold, on crée l'agent avec les bons outils, puis on lui pose 10 questions et on lui fait construire 6 dashboards.
+Un agent ne devine pas le métier : il lit le schéma. On documente donc gold, on crée l'agent avec les bons outils, puis on lui pose 10 questions, on lui fait construire 6 dashboards et on lui confie 3 exercices de data science.
 
 ### Étape 1 · Documenter gold pour l'agent [testé]
 Un agent commence par lire les tables, leurs colonnes et leurs **commentaires** (règle `agent-discovery-schema`). Sans commentaires, il devine que `ts` est en heure locale ou que `488903` est un code postal. Ces commandes ne touchent que les métadonnées : instantané, aucune donnée réécrite.
@@ -390,6 +390,9 @@ en français à des questions métier sur la collecte des données de comptage d
 - Quand on te demande un dashboard, une page ou un rapport : interroge d'abord ClickHouse,
   puis construis un artifact interactif avec les VRAIES valeurs obtenues (jamais de données
   inventées), des titres en français, les unités (MW, MWh, %) et 2 ou 3 phrases d'analyse.
+- Pour la data science, utilise Run Code : récupère d'abord dans ClickHouse des données
+  agrégées et petites (quelques milliers de lignes au plus), puis entraîne le modèle en Python
+  (pandas, scikit-learn). Donne toujours l'erreur du modèle et une méthode naïve de comparaison.
 - Sinon, donne les chiffres clés avec leur unité, puis la requête SQL utilisée.
 ```
 
@@ -675,7 +678,107 @@ ORDER BY type_jour, heure;
 ```
 </details>
 
-### Étape 6 · En production : un rôle dédié à l'agent
+### Étape 6 · Data science : prévoir et reconstituer des courbes avec Run Code
+L'outil **Run Code** donne à l'agent un vrai Python (pandas, scikit-learn) dans un bac à sable. La répartition des rôles est le bon réflexe de data scientist sur ClickHouse :
+- **ClickHouse prépare les données** : agrégats, formes de consommation, échantillons. C'est rapide et ça réduit le volume ;
+- **Python entraîne le modèle** sur quelques centaines ou milliers de lignes seulement.
+
+Vérifiez d'abord que l'outil **Run Code** est bien dans la liste des outils de l'agent (étape 2).
+
+**6.1 · Préparer les formes de consommation dans gold [testé]**
+Pour les exemples 2 et 3, chaque compteur est résumé par sa forme moyenne : 24 valeurs pour un jour de semaine et 24 pour un jour de week-end, divisées par sa consommation moyenne (1 = la moyenne du compteur). Dans la console SQL, collez et exécutez :
+```sql
+CREATE OR REPLACE TABLE gold.profil_prm
+(
+    id_prm          UInt64,
+    profil          LowCardinality(String),
+    segment         LowCardinality(String),
+    puissance_kva   UInt16,
+    conso_moy_w     Float64,
+    forme_semaine   Array(Float32),
+    forme_weekend   Array(Float32)
+)
+ENGINE = MergeTree
+ORDER BY (profil, id_prm);
+
+INSERT INTO gold.profil_prm
+SELECT
+    id_prm,
+    dictGet('ref.dict_prm', 'profil', id_prm),
+    dictGet('ref.dict_prm', 'segment', id_prm),
+    dictGet('ref.dict_prm', 'puissance_kva', id_prm),
+    round(avg(conso_w), 1),
+    arrayMap(x -> toFloat32(round(x / avg(conso_w), 3)), arraySort((x, h) -> h, groupArrayIf(conso_w, type_jour = 'semaine'), groupArrayIf(heure, type_jour = 'semaine'))),
+    arrayMap(x -> toFloat32(round(x / avg(conso_w), 3)), arraySort((x, h) -> h, groupArrayIf(conso_w, type_jour = 'week-end'), groupArrayIf(heure, type_jour = 'week-end')))
+FROM
+(
+    SELECT id_prm,
+           if(toDayOfWeek(ts - 1, 0, 'Europe/Paris') >= 6, 'week-end', 'semaine') AS type_jour,
+           toHour(ts - 900, 'Europe/Paris') AS heure,
+           avg(valeur_w) AS conso_w
+    FROM silver.courbe_charge FINAL
+    WHERE grandeur = 'CONS'
+    GROUP BY id_prm, type_jour, heure
+)
+GROUP BY id_prm;
+
+ALTER TABLE gold.profil_prm
+    MODIFY COMMENT 'Forme de consommation moyenne de chaque compteur en octobre 2026, pour la data science. Une ligne par compteur.';
+ALTER TABLE gold.profil_prm
+    COMMENT COLUMN profil        'Profil déclaré : RES (résidentiel), PRO (professionnel), ENT (entreprise, industrie)',
+    COMMENT COLUMN conso_moy_w   'Puissance moyenne du compteur sur le mois, en W',
+    COMMENT COLUMN forme_semaine '24 valeurs, de 0h à 23h (heure de Paris), jour de semaine, divisées par conso_moy_w',
+    COMMENT COLUMN forme_weekend '24 valeurs, de 0h à 23h (heure de Paris), jour de week-end, divisées par conso_moy_w';
+```
+Vérifiez :
+```sql
+SELECT profil, count() AS compteurs, arrayMap(x -> round(x, 1), any(forme_semaine)) AS exemple_semaine
+FROM gold.profil_prm
+GROUP BY profil;
+```
+Attendu : 17 372 RES, 2 587 PRO, 40 ENT. La table se construit en 0,5 à 1,5 s à partir de 30 M de points silver.
+
+Les trois demandes ci-dessous ont été vérifiées en Python (scikit-learn) sur ces mêmes données : les résultats attendus en viennent. L'agent peut choisir d'autres réglages et trouver des chiffres un peu différents : c'est l'ordre de grandeur qui compte.
+
+**ML1 · Prévoir la courbe de charge du lendemain**
+
+> « Avec l'outil Run Code, prévois la courbe de charge du Grand Paris pour le samedi 31 octobre 2026. Récupère dans gold.courbe_epci la consommation (grandeur CONS) du Grand Paris (code_epci 200054781) du 1er au 31 octobre, en heure de Paris. Entraîne un modèle de gradient boosting de scikit-learn sur le 1er au 30 octobre, avec comme variables la demi-heure de la journée, le fait d'être un week-end et le jour du mois. Prévois le 31 et compare au réel : donne l'erreur moyenne en % (MAPE) et compare-la à deux méthodes naïves, recopier la veille et recopier le même jour de la semaine précédente. Trace la prévision et le réel sur le même graphique. »
+
+Attendu : une erreur moyenne d'environ **2 %** pour le modèle, contre **47 %** pour « recopier la veille » (un vendredi pour prévoir un samedi) et **13 %** pour « la semaine précédente ». La pointe réelle est vers 20h, à 22 MW. Le message à retenir : le modèle sait que demain est un samedi.
+
+<details><summary>Données attendues (requête de vérification)</summary>
+
+```sql
+SELECT toTimeZone(ts, 'Europe/Paris') AS heure, round(puissance_kw / 1000, 3) AS conso_mw
+FROM gold.courbe_epci
+WHERE code_epci = '200054781' AND grandeur = 'CONS'
+ORDER BY ts;
+```
+1 490 demi-heures sur le mois (le 25 octobre en compte 50 : changement d'heure).
+</details>
+
+**ML2 · Regrouper les compteurs par forme de consommation**
+
+> « Avec l'outil Run Code, regroupe les compteurs selon la forme de leur consommation. Récupère 100 compteurs par profil dans gold.profil_prm avec cette requête : SELECT id_prm, profil, forme_semaine, forme_weekend FROM gold.profil_prm ORDER BY cityHash64(id_prm) LIMIT 100 BY profil. Applique un k-means à 3 groupes sur les 48 valeurs de forme. Montre la forme moyenne de chaque groupe sur un graphique, décris chaque groupe en une phrase, et croise les groupes avec le profil déclaré. »
+
+Attendu : 240 compteurs (100 RES, 100 PRO, 40 ENT, il n'y a que 40 sites industriels). Les 3 groupes retrouvent **exactement** les 3 profils :
+- un groupe avec une pointe le matin et une grosse pointe vers 19h-20h, un peu plus haut le week-end : les foyers ;
+- un groupe avec un plateau de 8h à 19h en semaine et un week-end plat et bas : les professionnels ;
+- un groupe avec un talon élevé la nuit et une activité qui continue le week-end : l'industrie.
+
+Relance possible : « refais-le avec 4 groupes ». Les foyers se coupent alors en deux.
+
+`LIMIT 100 BY profil` est une syntaxe ClickHouse : 100 lignes par valeur de `profil`, en une seule requête. C'est l'échantillon équilibré idéal.
+
+**ML3 · Reconstituer la courbe d'un compteur dont on ne connaît que l'énergie (profilage)**
+
+> « Avec l'outil Run Code, montre qu'on peut reconstituer la courbe d'un compteur à partir de son énergie seule. Sur les mêmes 240 compteurs de gold.profil_prm, garde 70 % pour apprendre et 30 % pour tester, en gardant les mêmes proportions de profils. Sur l'apprentissage, calcule la forme type de chaque groupe (k-means à 3 groupes). Attribue un groupe à chaque compteur de test, prends la forme type de ce groupe comme forme reconstituée, et compare-la à sa vraie forme : erreur moyenne en % par profil. Compare avec une hypothèse de consommation plate (forme = 1 toute la journée). Montre un exemple de compteur : vraie forme et forme reconstituée sur le même graphique. »
+
+Attendu : environ **2 %** d'erreur avec la forme type, pour chaque profil, contre environ **49 %** avec une courbe plate. C'est le principe du **profilage** : pour un compteur sans courbe de charge, on multiplie son énergie (relevée par index) par la forme type de sa famille.
+
+Ces résultats sont nets parce que les données sont simulées. Sur des données réelles, la météo, les vacances et les comportements individuels augmentent les erreurs. La méthode, elle, reste la même.
+
+### Étape 7 · En production : un rôle dédié à l'agent
 Pendant le workshop, l'agent tourne avec vos droits. En production, on lui donne un rôle en lecture seule sur gold, avec des limites sur chaque requête (règle `agent-query-safety`). À adapter, non exécuté pendant le workshop :
 ```sql
 CREATE SETTINGS PROFILE IF NOT EXISTS profil_agent SETTINGS
