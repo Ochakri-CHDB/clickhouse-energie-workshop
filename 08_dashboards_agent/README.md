@@ -390,10 +390,6 @@ en français à des questions métier sur la collecte des données de comptage d
 - Quand on te demande un dashboard, une page ou un rapport : interroge d'abord ClickHouse,
   puis construis un artifact interactif avec les VRAIES valeurs obtenues (jamais de données
   inventées), des titres en français, les unités (MW, MWh, %) et 2 ou 3 phrases d'analyse.
-- Pour la data science : récupère d'abord avec l'outil ClickHouse des données agrégées et
-  petites (quelques centaines de lignes), colle-les dans ton code Python, puis exécute-le
-  toi-même avec Run Code. N'utilise jamais clickhouse_connect et ne demande jamais à
-  l'utilisateur de lancer un script. Donne l'erreur du modèle et celle d'une méthode naïve.
 - Sinon, donne les chiffres clés avec leur unité, puis la requête SQL utilisée.
 ```
 
@@ -739,65 +735,58 @@ GROUP BY profil;
 ```
 Attendu : 17 372 RES, 2 587 PRO, 40 ENT. La table se construit en 0,5 à 1,5 s à partir de 30 M de points silver.
 
-**6.2 · La règle d'or avec Run Code**
-Run Code exécute du Python dans un bac à sable, **qui n'a pas vos identifiants ClickHouse**. Sans consigne, l'agent écrit souvent un script avec `clickhouse_connect` et vous demande de le lancer vous-même. C'est arrivé lors des essais de ce workshop. Chaque demande ci-dessous impose donc les trois temps :
-1. l'agent exécute la requête SQL fournie avec l'**outil ClickHouse** : un résultat compact, de 31 à 90 lignes ;
-2. il **colle ce résultat dans son code Python** ;
-3. il **exécute le code lui-même dans Run Code** et affiche les chiffres et le graphique.
+**6.2 · Ajouter les consignes de data science à l'agent [console]**
+Run Code exécute du Python dans un bac à sable, qui n'a pas vos identifiants ClickHouse. Sans consigne, l'agent écrit un script avec `clickhouse_connect` et vous demande de le lancer vous-même. On lui donne donc la méthode une fois pour toutes, dans ses instructions.
 
-Les résultats attendus viennent de l'exécution de ces mêmes calculs en Python (scikit-learn 1.9) sur les données du service.
+Rouvrez l'agent, onglet **Instructions**, **Inline**, et ajoutez ce bloc à la fin :
+```
+Data science avec l'outil Run Code :
+- Tu exécutes toujours toi-même le code Python dans l'outil Run Code. Ne propose jamais un
+  script à lancer, n'utilise jamais clickhouse_connect ni aucune connexion à une base.
+- Méthode, toujours la même :
+  1. une requête avec l'outil ClickHouse qui renvoie moins de 100 lignes (agrège ou
+     échantillonne dans ClickHouse) ;
+  2. copie le résultat tel quel dans ton code Python ;
+  3. exécute le code dans Run Code et montre les chiffres et un graphique.
+- Courbe d'un territoire : une ligne par jour, avec les 48 demi-heures dans un tableau :
+  SELECT jour, toDayOfWeek(jour) >= 6 AS week_end,
+         arrayMap(x -> x.2, arraySort(groupArray((demi_heure, mw)))) AS conso_mw
+  FROM (SELECT toDate(ts - 1800, 'Europe/Paris') AS jour,
+               toHour(ts - 1800, 'Europe/Paris') * 2 + intDiv(toMinute(ts - 1800, 'Europe/Paris'), 30) AS demi_heure,
+               round(avg(puissance_kw) / 1000, 2) AS mw
+        FROM gold.courbe_epci
+        WHERE code_epci = '<code EPCI>' AND grandeur = 'CONS'
+        GROUP BY jour, demi_heure)
+  GROUP BY jour ORDER BY jour
+- Formes des compteurs : SELECT profil, arrayMap(x -> round(x, 2), forme_semaine) AS semaine,
+  arrayMap(x -> round(x, 2), forme_weekend) AS weekend FROM gold.profil_prm
+  ORDER BY cityHash64(id_prm) LIMIT 30 BY profil
+- Prévision : HistGradientBoostingRegressor(max_iter=300, learning_rate=0.05, random_state=0)
+  avec demi_heure, week_end et jour du mois. Compare toujours son erreur (MAPE) à deux méthodes
+  naïves alignées par demi-heure : la veille, et le même jour de la semaine précédente.
+- Segmentation : KMeans(n_clusters=3, n_init=10, random_state=0) sur les 48 valeurs de forme
+  (semaine puis week-end), puis croise les groupes avec le profil.
+- Profilage : sépare 70 % / 30 % (stratifié par profil), forme type = centre du groupe
+  KMeans appris sur les 70 %, erreur moyenne en % sur les 30 %, comparée à une courbe plate.
+```
+Enregistrez l'agent, puis ouvrez une **nouvelle** conversation : les instructions ne s'appliquent qu'aux conversations qui commencent après.
 
-**ML1 · Prévoir la courbe de charge du lendemain**
+**6.3 · Les trois demandes**
+Une phrase suffit : la méthode est dans les instructions.
 
-> « Exécute toi-même ce calcul dans l'outil Run Code. N'utilise pas clickhouse_connect et ne me demande pas de lancer un script.
-> 1. Avec l'outil ClickHouse, exécute cette requête (31 lignes, une par jour d'octobre, 48 valeurs en MW par demi-heure, heure de Paris) :
-> `SELECT jour, toDayOfWeek(jour) >= 6 AS week_end, arrayMap(x -> x.2, arraySort(groupArray((demi_heure, mw)))) AS conso_mw FROM (SELECT toDate(ts - 1800, 'Europe/Paris') AS jour, toHour(ts - 1800, 'Europe/Paris') * 2 + intDiv(toMinute(ts - 1800, 'Europe/Paris'), 30) AS demi_heure, round(avg(puissance_kw) / 1000, 2) AS mw FROM gold.courbe_epci WHERE code_epci = '200054781' AND grandeur = 'CONS' GROUP BY jour, demi_heure) GROUP BY jour ORDER BY jour`
-> 2. Colle le résultat dans ton code Python, et construis une ligne par jour et par demi-heure avec les variables demi_heure (0 à 47), week_end et jour_du_mois.
-> 3. Entraîne `HistGradientBoostingRegressor(max_iter=300, learning_rate=0.05, random_state=0)` sur le 1er au 30 octobre, prévois le samedi 31.
-> 4. Donne l'erreur moyenne en % (MAPE) du modèle, et celle de deux méthodes naïves alignées par demi-heure : recopier la veille (vendredi 30) et recopier le samedi précédent (24 octobre).
-> 5. Trace sur un même graphique le réel, la prévision et le samedi précédent. »
+| | Demande à coller | Résultat attendu |
+|---|---|---|
+| **ML1 · Prévision** | « Prévois la courbe de charge du Grand Paris pour le samedi 31 octobre à partir du 1er au 30 octobre, et compare à la réalité. » | modèle **~2,3 %** d'erreur, samedi précédent ~3,3 %, veille ~47 %. Pointe réelle à 19h30, 22,0 MW |
+| **ML2 · Segmentation** | « Regroupe les compteurs en 3 familles selon la forme de leur consommation et montre-moi chaque famille. » | 3 groupes de 30 qui recoupent **exactement** RES, PRO, ENT : pointe du soir, plateau 8h-19h, talon industriel |
+| **ML3 · Profilage** | « Montre-moi qu'on peut reconstituer la courbe d'un compteur à partir de son énergie seule, avec la forme type de sa famille. » | **~2,3 %** d'erreur avec la forme type, contre ~45 % avec une courbe plate |
 
-Attendu :
+Les résultats attendus viennent de l'exécution de ces mêmes calculs en Python (scikit-learn 1.9) sur les données du service. L'agent peut trouver des chiffres un peu différents : c'est l'ordre de grandeur qui compte.
 
-| Méthode | Erreur moyenne |
-|---|---|
-| Modèle (gradient boosting) | **~2,3 %** |
-| Recopier le samedi précédent | ~3,3 % |
-| Recopier la veille (un vendredi) | ~47 % |
+À retenir pour ML1 : le modèle bat les deux méthodes naïves parce qu'il sait que demain est un samedi, et qu'il suit la hausse de fin de mois. Avec le `GradientBoostingRegressor` par défaut, on obtient ~8 %, moins bien que le samedi précédent : le choix du modèle compte, d'où la consigne.
 
-La pointe réelle est à 19h30, à 22,0 MW. La prévision donne ~20,8 MW vers 19h.
+À retenir pour ML3 : c'est le principe du **profilage**. Pour un compteur sans courbe de charge, on multiplie son énergie (relevée par index) par la forme type de sa famille.
 
-À retenir : le modèle bat les deux méthodes naïves parce qu'il sait que demain est un samedi, et qu'il suit la hausse de fin de mois. Avec le `GradientBoostingRegressor` par défaut, on obtient ~8 %, moins bien que le samedi précédent. Le choix du modèle et de ses réglages compte.
-
-**ML2 · Regrouper les compteurs par forme de consommation**
-
-> « Exécute toi-même ce calcul dans l'outil Run Code. N'utilise pas clickhouse_connect et ne me demande pas de lancer un script.
-> 1. Avec l'outil ClickHouse, exécute cette requête (90 lignes : 30 compteurs par profil, 24 valeurs en semaine et 24 le week-end, divisées par la consommation moyenne du compteur) :
-> `SELECT profil, arrayMap(x -> round(x, 2), forme_semaine) AS semaine, arrayMap(x -> round(x, 2), forme_weekend) AS weekend FROM gold.profil_prm ORDER BY cityHash64(id_prm) LIMIT 30 BY profil`
-> 2. Colle le résultat dans ton code Python. Chaque compteur est décrit par 48 valeurs (semaine puis week-end).
-> 3. Applique `KMeans(n_clusters=3, n_init=10, random_state=0)`.
-> 4. Trace la forme moyenne de chaque groupe (semaine et week-end), décris chaque groupe en une phrase, et croise les groupes avec la colonne profil. »
-
-Attendu : les 3 groupes recoupent **exactement** les 3 profils, 30 compteurs chacun :
-- un groupe avec une pointe le matin et une grosse pointe vers 19h-20h, un peu plus haut le week-end : les foyers (RES) ;
-- un groupe avec un plateau de 8h à 19h en semaine et un week-end plat et bas : les professionnels (PRO) ;
-- un groupe avec un talon élevé la nuit et une activité qui continue le week-end : l'industrie (ENT).
-
-`LIMIT 30 BY profil` est une syntaxe ClickHouse : 30 lignes par valeur de `profil`, en une seule requête. C'est l'échantillon équilibré idéal.
-
-**ML3 · Reconstituer la courbe d'un compteur dont on ne connaît que l'énergie (profilage)**
-
-> « Exécute toi-même ce calcul dans l'outil Run Code. N'utilise pas clickhouse_connect et ne me demande pas de lancer un script.
-> 1. Reprends les 90 compteurs de la requête précédente (relance-la avec l'outil ClickHouse si besoin) et colle-les dans ton code Python.
-> 2. Sépare-les avec `train_test_split(test_size=0.3, random_state=0, stratify=profil)`.
-> 3. Sur l'apprentissage, calcule 3 formes types avec `KMeans(n_clusters=3, n_init=10, random_state=0)`.
-> 4. Pour chaque compteur de test, prends la forme type de son groupe comme forme reconstituée, et calcule l'erreur moyenne en % par rapport à sa vraie forme, par profil.
-> 5. Compare avec une hypothèse de consommation plate (forme = 1 toute la journée).
-> 6. Trace pour un compteur de test sa vraie forme et sa forme reconstituée. »
-
-Attendu : environ **2,3 %** d'erreur avec la forme type, pour chaque profil, contre environ **45 %** avec une courbe plate. C'est le principe du **profilage** : pour un compteur sans courbe de charge, on multiplie son énergie (relevée par index) par la forme type de sa famille.
-
-**Si l'agent n'exécute toujours pas le code** : répondez-lui « exécute-le toi-même avec l'outil Run Code, en collant les données dans le code ». S'il signale une bibliothèque manquante, demandez-lui de la remplacer (par exemple numpy à la place de scikit-learn pour le k-means).
+**Si l'agent n'exécute toujours pas le code** : répondez « exécute-le toi-même avec Run Code, en collant les données dans le code ». Vérifiez aussi que la conversation a bien été ouverte après l'enregistrement des instructions.
 
 Ces résultats sont nets parce que les données sont simulées. Sur des données réelles, la météo, les vacances et les comportements individuels augmentent les erreurs. La méthode, elle, reste la même.
 
