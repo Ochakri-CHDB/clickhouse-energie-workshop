@@ -78,18 +78,3 @@ WHERE type = 'QueryFinish'
 ORDER BY event_time;
 -- À observer : la mémoire maximale de chaque INSERT. Elle reste de l'ordre de
 -- 2 Go car max_block_size = 2 ne garde que 2 fichiers en mémoire à la fois.
-
-
--- POUR ALLER PLUS LOIN · Lire les vrais fichiers depuis S3, sans Fargate
---  ClickHouse lit S3 directement, y compris les ZIP : pas besoin de conteneur
---  intermédiaire pour décompresser et charger.
---  (non exécutable ici : il faut un bucket)
---
---  Lire des ZIP directement, avec la syntaxe archive "::" :
---    SELECT * FROM s3('https://<bucket>.s3.eu-west-1.amazonaws.com/flux/*.zip :: *.json', JSONAsString);
---
---  Écrire du Parquet vers S3 :
---    INSERT INTO FUNCTION s3('https://<bucket>.s3.eu-west-1.amazonaws.com/export/cdc.parquet', 'Parquet')
---    SELECT * FROM silver.courbe_charge WHERE toDate(ts) = '2026-10-15';
---
---  En continu : ClickPipes surveille le bucket et alimente bronze.flux_raw.

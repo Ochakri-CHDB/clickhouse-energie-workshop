@@ -94,7 +94,6 @@ GROUP BY code_epci, grandeur, ts;
 
 -- ÉTAPE 3 · Une vue qui DÉPEND d'une autre : la synthèse par collectivité
 --  DEPENDS ON : elle attend que l'énergie par commune soit rafraîchie.
---  C'est la réponse SQL aux "sémaphores" entre chaînes de traitement.
 CREATE OR REPLACE TABLE gold.synthese_collectivite_jour
 (
     id_destinataire  String,

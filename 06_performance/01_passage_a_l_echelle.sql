@@ -72,7 +72,7 @@ INSERT INTO silver.courbe_charge_xl SELECT * FROM simulateur.points_xl(debut = 7
 INSERT INTO silver.courbe_charge_xl SELECT * FROM simulateur.points_xl(debut = 875000, nb = 125000) SETTINGS max_insert_threads = 8;
 -- Mesuré : 8,22 s · 186 M lignes lues (1,4 Go) · 186 M lignes écrites · 1,1 Go de mémoire
 -- À observer : en bas de la console, les lignes/s de chaque lot. Chaque point est
--- calculé (dictGet + sim_conso_w), trié selon l'ORDER BY, compressé puis écrit sur S3.
+-- calculé (dictGet + sim_conso_w), trié selon l'ORDER BY, compressé puis écrit sur le stockage objet.
 
 
 -- ÉTAPE 4 · Ce que ça pèse

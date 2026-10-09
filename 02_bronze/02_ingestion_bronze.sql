@@ -78,7 +78,7 @@ FROM bronze.flux_raw
 GROUP BY code_flux;
 -- Mesuré : 6 ms · 20 lignes lues
 
---  Un fichier, comme dans le bucket S3
+--  Un fichier, tel qu'il a été reçu
 SELECT file_name, ingested_at, substring(payload, 1, 600) AS debut_du_json
 FROM bronze.flux_raw
 LIMIT 1;
