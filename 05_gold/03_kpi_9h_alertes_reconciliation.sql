@@ -149,7 +149,7 @@ CREATE OR REPLACE VIEW gold.v_reconciliation AS
 SELECT
     e.jour,
     e.id_prm,
-    e.energie_wh / 1000                                          AS energie_r65_kwh,
+    e.energie_wh / 1000                                          AS energie_jour_kwh,
     c.energie_courbe_kwh,
     c.nb_points,
     round(100 * (1 - c.energie_courbe_kwh / (e.energie_wh / 1000)), 2) AS ecart_pct

@@ -122,7 +122,7 @@ Les résultats détaillés de chaque fichier sont dans `logs/`. Les modules dép
 05_gold/              agrégats, vues rafraîchissables, KPI 9h, alertes, réconciliation
 06_performance/       1,5 milliard de points, optimisations mesurées
 07_exploitation/      rejeu, TTL, sécurité, observabilité
-08_dashboards_agent/  dashboard pas à pas (README), API, questions pour ClickHouse Agents
+08_dashboards_agent/  README pas à pas : dashboard, API, ClickHouse Agents (aucun fichier SQL)
 data/                 référentiels INSEE de secours (si geo.api.gouv.fr ne répond pas)
 run_all.sh, reset.sql exécution complète et nettoyage
 RESULTATS.md          chiffres mesurés sur le service de test, module par module

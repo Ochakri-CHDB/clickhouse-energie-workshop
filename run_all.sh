@@ -45,9 +45,8 @@ FICHIERS=(
   07_exploitation/01_rejeu_et_publication_atomique.sql
   07_exploitation/02_ttl_suppressions_securite.sql
   07_exploitation/03_observabilite.sql
-  08_dashboards_agent/01_vue_parametree_api.sql
-  08_dashboards_agent/02_questions_agent.sql
 )
+# Le module 08 se fait dans la console, en suivant 08_dashboards_agent/README.md
 
 mkdir -p logs
 demarre=0; [ -z "$DEPART" ] && demarre=1

@@ -76,7 +76,7 @@ SELECT toJSONString(tuple(
         [tuple('EA' AS grandeurPhysique, 'CONS' AS grandeurMetier, 'Wh' AS unite,
                [tuple('2026-10-01' AS d, toString(round(80000 + 60000 * (cityHash64(i) % 1000) / 1000, 2)) AS v)] AS points)] AS grandeur
     ), range(1000)) AS mesures
-)) AS fichier_r65
+)) AS fichier_energie_jour
 SETTINGS enable_named_columns_in_function_tuple = 1;
 -- Mesuré : 4 ms · 1 ligne lue
 -- À observer : copiez le résultat dans un visualiseur JSON. On retrouve
