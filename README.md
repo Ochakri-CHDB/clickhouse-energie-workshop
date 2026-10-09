@@ -15,6 +15,20 @@ déterministes : tout le monde obtient les mêmes chiffres.
 
 ---
 
+## L'architecture du workshop
+
+![Le pipeline complet du workshop](docs/pipeline_complet.png)
+
+Chaque flèche est une vue SQL : rien ne tourne en dehors de ClickHouse.
+- **Flèche pleine** : vue matérialisée incrémentale, déclenchée à chaque INSERT (temps réel).
+- **Flèche pointillée** : vue rafraîchissable, recalculée toutes les 10 minutes à partir des tables silver lues avec FINAL.
+- **Bronze** garde le JSON brut (1 ligne = 1 fichier). **Silver** le transforme en points typés et dédupliqués. **Gold** contient des agrégats prêts à lire, exposés au dashboard, à l'API (vues paramétrées, row policy) et à l'agent.
+- Autour du flux principal : la table de 1,5 milliard de points (module 06), le rejeu d'un mois (module 07), l'observabilité par les tables `system.*`.
+
+Les mots et abréviations de la journée sont dans le [lexique](#lexique).
+
+---
+
 ## Avant la session (20 min, à faire la veille)
 
 1. **Créez votre compte ClickHouse Cloud** sur [clickhouse.cloud](https://clickhouse.cloud) avec votre adresse professionnelle. 300 $ de crédits sont offerts pendant 30 jours, largement assez pour la journée.
@@ -111,6 +125,24 @@ Les résultats détaillés de chaque fichier sont dans `logs/`. Les modules dép
 
 ---
 
+## Lexique
+
+![Lexique : les abréviations de la journée](docs/lexique.png)
+
+| Métier énergie | | ClickHouse | | Plateforme et données | |
+|---|---|---|---|---|---|
+| **PRM** | Point de référence mesure : identifiant à 14 chiffres d'un compteur | **SQL** | le langage des requêtes, utilisé pour tout le workshop | **JSON** | format texte des fichiers reçus |
+| **CDC (flux)** | courbe de charge : puissance moyenne toutes les 30 minutes, en W | **MV** | vue matérialisée : trigger qui transforme chaque INSERT | **API** | interface qu'un programme appelle pour interroger un service |
+| **ENERGIE · PMAX** | énergie du jour (Wh) et puissance maximale du jour (VA) | **RMV** | vue rafraîchissable : recalcul complet planifié (10 min, 9h) | **S3 · GCS** | stockage objet d'AWS et de Google Cloud |
+| **CONS · PROD** | énergie consommée, et énergie produite (panneaux solaires) | **FINAL** | lit la dernière version de chaque ligne, sans doublons | **CDC (base)** | Change Data Capture : copie continue des modifications d'une base |
+| **C5 · C4 · C2** | segments : jusqu'à 36 kVA, de 36 à 250 kVA, raccordé en HTA | **TTL** | durée de vie : purge automatique des lignes trop anciennes | **OTel** | OpenTelemetry : standard de collecte des logs, métriques, traces |
+| **RES · PRO · ENT** | profils : résidentiel, professionnel, entreprise | **UDF** | fonction SQL définie par l'utilisateur, réutilisable partout | **MCP** | Model Context Protocol : branche un agent IA sur des outils et des données |
+| **EPCI** | intercommunalité (métropole, agglo) : périmètre d'une collectivité | **ASOF JOIN** | jointure sur la valeur la plus proche, par exemple à une date | **KPI** | indicateur clé, par exemple 99 % des données reçues à 9h |
+| **INSEE** | code officiel d'une commune, 5 caractères | **ZSTD** | Zstandard : l'algorithme qui compresse les colonnes | **BI** | informatique décisionnelle : tableaux de bord et rapports |
+| **VA · W · Wh** | puissance apparente, puissance active, énergie. k, M, G : mille, million, milliard | **UTC** | temps universel, sans changement d'heure : le format de stockage | **RGPD** | règlement européen sur la protection des données personnelles |
+
+---
+
 ## Contenu du repo
 
 ```
@@ -126,6 +158,7 @@ Les résultats détaillés de chaque fichier sont dans `logs/`. Les modules dép
 data/                 référentiels INSEE de secours (si geo.api.gouv.fr ne répond pas)
 run_all.sh, reset.sql exécution complète et nettoyage
 RESULTATS.md          chiffres mesurés sur le service de test, module par module
+docs/                 schéma du pipeline et lexique (images)
 ```
 
 ## Bonnes pratiques ClickHouse illustrées
