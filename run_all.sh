@@ -39,6 +39,7 @@ FICHIERS=(
   05_gold/01_mv_incrementale_collecte.sql
   05_gold/02_vues_rafraichissables.sql
   05_gold/03_kpi_9h_alertes_reconciliation.sql
+  05_gold/04_formes_compteurs.sql
   06_performance/01_passage_a_l_echelle.sql
   06_performance/02_requetes_et_optimisations.sql
   06_performance/03_sql_avance.sql
