@@ -1,5 +1,5 @@
 -- =====================================================================
---  MODULE 5 · Gold (1/3) : le suivi de collecte, en temps réel
+--  MODULE 5 · Gold (1/4) : le suivi de collecte, en temps réel
 -- =====================================================================
 --  bronze ──MV──► silver ──MV──► gold      (MV en CASCADE)
 --  On compte, pour chaque PRM et chaque jour, les points reçus, et ceux

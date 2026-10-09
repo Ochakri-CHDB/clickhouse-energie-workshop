@@ -682,58 +682,14 @@ L'outil **Run Code** donne à l'agent un vrai Python (pandas, scikit-learn) dans
 
 Vérifiez d'abord que l'outil **Run Code** est bien dans la liste des outils de l'agent (étape 2).
 
-**6.1 · Préparer les formes de consommation dans gold [testé]**
-Pour les exemples 2 et 3, chaque compteur est résumé par sa forme moyenne : 24 valeurs pour un jour de semaine et 24 pour un jour de week-end, divisées par sa consommation moyenne (1 = la moyenne du compteur). Dans la console SQL, collez et exécutez :
+**6.1 · Vérifier que les formes de consommation sont dans gold [testé]**
+Les exemples 2 et 3 utilisent la table `gold.profil_prm` : chaque compteur y est résumé par sa forme moyenne, 24 valeurs en semaine et 24 le week-end, divisées par sa consommation moyenne. Elle est créée au module 05 par `05_gold/04_formes_compteurs.sql`. Vérifiez dans la console SQL :
 ```sql
-CREATE OR REPLACE TABLE gold.profil_prm
-(
-    id_prm          UInt64,
-    profil          LowCardinality(String),
-    segment         LowCardinality(String),
-    puissance_kva   UInt16,
-    conso_moy_w     Float64,
-    forme_semaine   Array(Float32),
-    forme_weekend   Array(Float32)
-)
-ENGINE = MergeTree
-ORDER BY (profil, id_prm);
-
-INSERT INTO gold.profil_prm
-SELECT
-    id_prm,
-    dictGet('ref.dict_prm', 'profil', id_prm),
-    dictGet('ref.dict_prm', 'segment', id_prm),
-    dictGet('ref.dict_prm', 'puissance_kva', id_prm),
-    round(avg(conso_w), 1),
-    arrayMap(x -> toFloat32(round(x / avg(conso_w), 3)), arraySort((x, h) -> h, groupArrayIf(conso_w, type_jour = 'semaine'), groupArrayIf(heure, type_jour = 'semaine'))),
-    arrayMap(x -> toFloat32(round(x / avg(conso_w), 3)), arraySort((x, h) -> h, groupArrayIf(conso_w, type_jour = 'week-end'), groupArrayIf(heure, type_jour = 'week-end')))
-FROM
-(
-    SELECT id_prm,
-           if(toDayOfWeek(ts - 1, 0, 'Europe/Paris') >= 6, 'week-end', 'semaine') AS type_jour,
-           toHour(ts - 900, 'Europe/Paris') AS heure,
-           avg(valeur_w) AS conso_w
-    FROM silver.courbe_charge FINAL
-    WHERE grandeur = 'CONS'
-    GROUP BY id_prm, type_jour, heure
-)
-GROUP BY id_prm;
-
-ALTER TABLE gold.profil_prm
-    MODIFY COMMENT 'Forme de consommation moyenne de chaque compteur en octobre 2026, pour la data science. Une ligne par compteur.';
-ALTER TABLE gold.profil_prm
-    COMMENT COLUMN profil        'Profil déclaré : RES (résidentiel), PRO (professionnel), ENT (entreprise, industrie)',
-    COMMENT COLUMN conso_moy_w   'Puissance moyenne du compteur sur le mois, en W',
-    COMMENT COLUMN forme_semaine '24 valeurs, de 0h à 23h (heure de Paris), jour de semaine, divisées par conso_moy_w',
-    COMMENT COLUMN forme_weekend '24 valeurs, de 0h à 23h (heure de Paris), jour de week-end, divisées par conso_moy_w';
+SELECT segment, profil, count() AS compteurs FROM gold.profil_prm GROUP BY segment, profil ORDER BY segment, profil;
 ```
-Vérifiez :
-```sql
-SELECT profil, count() AS compteurs, arrayMap(x -> round(x, 1), any(forme_semaine)) AS exemple_semaine
-FROM gold.profil_prm
-GROUP BY profil;
-```
-Attendu : 17 372 RES, 2 587 PRO, 40 ENT. La table se construit en 0,5 à 1,5 s à partir de 30 M de points silver.
+Attendu : C2 ENT 40, C4 PRO ~230, C5 PRO ~2 360, C5 RES ~17 370.
+
+Si vous voyez `Table gold.profil_prm does not exist`, ouvrez `05_gold/04_formes_compteurs.sql`, collez-le dans la console et exécutez tout (Cmd+Entrée) : moins d'une seconde. Sans cette table, l'agent vous répondra qu'il ne peut pas faire les exemples 2 et 3. C'est le bon comportement : il ne doit pas inventer de données.
 
 **6.2 · Ajouter les consignes de data science à l'agent [console]**
 Run Code exécute du Python dans un bac à sable, qui n'a pas vos identifiants ClickHouse. Sans consigne, l'agent écrit un script avec `clickhouse_connect` et vous demande de le lancer vous-même. On lui donne donc la méthode une fois pour toutes, dans ses instructions.
@@ -758,16 +714,22 @@ Data science avec l'outil Run Code :
         WHERE code_epci = '<code EPCI>' AND grandeur = 'CONS'
         GROUP BY jour, demi_heure)
   GROUP BY jour ORDER BY jour
-- Formes des compteurs : SELECT profil, arrayMap(x -> round(x, 2), forme_semaine) AS semaine,
-  arrayMap(x -> round(x, 2), forme_weekend) AS weekend FROM gold.profil_prm
-  ORDER BY cityHash64(id_prm) LIMIT 30 BY profil
+- Formes des compteurs (30 par segment C5, C4, C2) :
+  SELECT segment, profil, arrayMap(x -> round(x, 2), forme_semaine) AS semaine,
+         arrayMap(x -> round(x, 2), forme_weekend) AS weekend
+  FROM gold.profil_prm ORDER BY cityHash64(id_prm) LIMIT 30 BY segment
+  Si gold.profil_prm n'existe pas, dis-le en une phrase : elle se crée avec le fichier
+  05_gold/04_formes_compteurs.sql du workshop. N'utilise pas silver à la place.
 - Prévision : HistGradientBoostingRegressor(max_iter=300, learning_rate=0.05, random_state=0)
   avec demi_heure, week_end et jour du mois. Compare toujours son erreur (MAPE) à deux méthodes
   naïves alignées par demi-heure : la veille, et le même jour de la semaine précédente.
 - Segmentation : KMeans(n_clusters=3, n_init=10, random_state=0) sur les 48 valeurs de forme
-  (semaine puis week-end), puis croise les groupes avec le profil.
-- Profilage : sépare 70 % / 30 % (stratifié par profil), forme type = centre du groupe
-  KMeans appris sur les 70 %, erreur moyenne en % sur les 30 %, comparée à une courbe plate.
+  (semaine puis week-end), puis croise les familles avec le segment ET le profil.
+- Profilage : sépare 70 % / 30 % (stratifié par segment), forme type = centre du groupe
+  KMeans appris sur les 70 %, erreur moyenne en % par segment sur les 30 %, comparée à une
+  courbe plate.
+- Présente toujours le résultat dans un artifact : les graphiques, un tableau des chiffres
+  clés (erreurs, effectifs des groupes) et 3 à 5 phrases d'analyse en français, sans jargon.
 ```
 Enregistrez l'agent, puis ouvrez une **nouvelle** conversation : les instructions ne s'appliquent qu'aux conversations qui commencent après.
 
@@ -777,12 +739,16 @@ Une phrase suffit : la méthode est dans les instructions.
 | | Demande à coller | Résultat attendu |
 |---|---|---|
 | **ML1 · Prévision** | « Prévois la courbe de charge du Grand Paris pour le samedi 31 octobre à partir du 1er au 30 octobre, et compare à la réalité. » | modèle **~2,3 %** d'erreur, samedi précédent ~3,3 %, veille ~47 %. Pointe réelle à 19h30, 22,0 MW |
-| **ML2 · Segmentation** | « Regroupe les compteurs en 3 familles selon la forme de leur consommation et montre-moi chaque famille. » | 3 groupes de 30 qui recoupent **exactement** RES, PRO, ENT : pointe du soir, plateau 8h-19h, talon industriel |
-| **ML3 · Profilage** | « Montre-moi qu'on peut reconstituer la courbe d'un compteur à partir de son énergie seule, avec la forme type de sa famille. » | **~2,3 %** d'erreur avec la forme type, contre ~45 % avec une courbe plate |
+| **ML2 · Segmentation** | « Regroupe les compteurs en 3 familles selon la forme de leur consommation, croise ces familles avec les segments C5, C4 et C2, et montre-moi chaque famille. » | 90 compteurs (30 par segment). 3 familles : **foyers** (25 C5 résidentiels, pointe du soir), **professionnels** (les 30 C4 et 5 petits pros C5, plateau 8h-19h), **industrie** (les 30 C2, talon élevé, actif le week-end) |
+| **ML3 · Profilage** | « Montre-moi qu'on peut reconstituer la courbe d'un compteur à partir de son énergie seule, avec la forme type de sa famille. » | **~2,3 %** d'erreur avec la forme type, dans chaque segment, contre ~46 % avec une courbe plate |
+
+Chaque résultat s'affiche dans un artifact : graphiques, tableau des chiffres clés et quelques phrases d'analyse.
 
 Les résultats attendus viennent de l'exécution de ces mêmes calculs en Python (scikit-learn 1.9) sur les données du service. L'agent peut trouver des chiffres un peu différents : c'est l'ordre de grandeur qui compte.
 
 À retenir pour ML1 : le modèle bat les deux méthodes naïves parce qu'il sait que demain est un samedi, et qu'il suit la hausse de fin de mois. Avec le `GradientBoostingRegressor` par défaut, on obtient ~8 %, moins bien que le samedi précédent : le choix du modèle compte, d'où la consigne.
+
+À retenir pour ML2 : la famille professionnelle mélange des C4 et des petits professionnels C5. La forme de consommation dépend de l'usage, pas de la puissance souscrite.
 
 À retenir pour ML3 : c'est le principe du **profilage**. Pour un compteur sans courbe de charge, on multiplie son énergie (relevée par index) par la forme type de sa famille.
 

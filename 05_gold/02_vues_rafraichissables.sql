@@ -1,5 +1,5 @@
 -- =====================================================================
---  MODULE 5 · Gold (2/3) : les KPIs consolidés, rafraîchis
+--  MODULE 5 · Gold (2/4) : les KPIs consolidés, rafraîchis
 -- =====================================================================
 --  Une vue matérialisée RAFRAÎCHISSABLE recalcule sa requête selon un
 --  planning et remplace atomiquement le résultat. Elle lit silver FINAL :

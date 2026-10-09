@@ -132,7 +132,7 @@ Avec cette configuration, vous retrouverez les durées notées en commentaire (`
 | 1:20 | *Pause* | | 10 min |
 | 1:30 | **03** Silver | Vues matérialisées, triple ARRAY JOIN, backfill, renvois, corrections, changement d'heure | 35 min |
 | 2:05 | **04** Dictionnaires | Référentiels en mémoire, puissance souscrite « à date » | 15 min |
-| 2:20 | **05** Gold | MV incrémentale, piège de la somme, vues rafraîchissables, KPI 9h, alertes PMax, réconciliation énergie jour / courbe | 35 min |
+| 2:20 | **05** Gold | MV incrémentale, piège de la somme, vues rafraîchissables, KPI 9h, alertes PMax, réconciliation énergie jour / courbe, formes de consommation pour la data science | 35 min |
 | 2:55 | *Pause* | | 10 min |
 | 3:05 | **06** Performance | 1,5 milliard de points, index primaire, répliques parallèles, projection, index de saut, cache, SQL avancé | 30 min |
 | 3:35 | **07** Exploitation | Rejeu et publication atomique, TTL, DELETE, row policies, observabilité en SQL | 25 min |
