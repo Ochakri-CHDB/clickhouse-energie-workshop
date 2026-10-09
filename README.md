@@ -54,7 +54,7 @@ Avec cette configuration, vous retrouverez les durées notées en commentaire (`
 | 2:55 | *Pause* | | 10 min |
 | 3:05 | **06** Performance | 1,5 milliard de points, index primaire, répliques parallèles, projection, index de saut, cache, SQL avancé | 30 min |
 | 3:35 | **07** Exploitation | Rejeu et publication atomique, TTL, DELETE, row policies, observabilité en SQL | 25 min |
-| 4:00 | **08** Dashboards, API, Agents | 5 tuiles, un Query API endpoint sécurisé, 10 questions à ClickHouse Agents | 40 min |
+| 4:00 | **08** Dashboards, API, Agents | Dashboard filtrable de 8 tuiles, un Query API endpoint sécurisé, ClickHouse Agents : 10 questions et 6 dashboards construits par l'agent | 40 min |
 | 4:40 | Conclusion | Ce qu'on a vu, pour aller plus loin, questions | 20 min |
 
 Chaque module a un ou plusieurs fichiers `.sql`, à exécuter **dans l'ordre**. Le README du module 08 détaille les étapes dans la console (dashboard, API, agent).

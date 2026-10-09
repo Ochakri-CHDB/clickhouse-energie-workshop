@@ -9,13 +9,14 @@
 --  Le README de ce dossier explique comment en faire un dashboard.
 --
 --  Les tuiles sont écrites pour la Métropole du Grand Paris (EPCI 200054781,
---  destinataire 488903). Pour un dashboard interactif, remplacez la valeur
---  par un paramètre : {code_epci:String}, {jour:Date} (voir le README).
+--  destinataire 488903). Pour un dashboard filtrable par nom ("Paris",
+--  "Lyon"…) et par date, le README donne la version de chaque tuile avec
+--  les paramètres {collectivite:String} et {jour:Date}.
 -- =====================================================================
 
 
 -- TUILE 1 · Courbe de charge du 15 octobre : consommation vs production
---  Graphique "Line" : X = heure, Y = conso_mw et prod_mw.
+--  Visualisation "Line" (ou "Area") : X = heure, Y = conso_mw et prod_mw.
 --  gold.courbe_epci est triée par (code_epci, grandeur, ts) : le filtre
 --  suit l'ORDER BY, on lit 2 × 48 lignes (règle schema-pk-filter-on-orderby).
 SELECT
@@ -28,13 +29,13 @@ WHERE code_epci = '200054781'
   AND ts <= toDateTime('2026-10-16', 'Europe/Paris')
 GROUP BY heure
 ORDER BY heure;
--- Mesuré : 28 ms · 8 192 lignes lues (112,1 Ko)
+-- Mesuré : 26 ms · 8 192 lignes lues (112,1 Ko)
 -- À observer : la pointe du soir vers 19h-20h, la bosse solaire à midi, très en dessous.
 -- sumIf transforme les lignes CONS et PROD en deux colonnes : le format attendu par un graphique.
 
 
 -- TUILE 2 · Énergie par jour sur le mois
---  Graphique "Bar" : X = jour, Y = conso_mwh (et prod_mwh en 2e série).
+--  Visualisation "Stacked bar" ou "Bar Chart" : X = jour, Y = conso_mwh et prod_mwh.
 SELECT
     jour,
     round(conso_kwh / 1000, 1)          AS conso_mwh,
@@ -43,12 +44,12 @@ SELECT
 FROM gold.synthese_collectivite_jour
 WHERE id_destinataire = '488903'
 ORDER BY jour;
--- Mesuré : 26 ms · 186 lignes lues (6,2 Ko)
+-- Mesuré : 15 ms · 186 lignes lues (6,2 Ko)
 -- À observer : les creux du week-end, et la tendance qui monte : octobre se refroidit.
 
 
 -- TUILE 3 · Top 10 des communes, en énergie consommée sur le mois
---  Graphique "Bar" horizontal ou "Table".
+--  Visualisation "Horizontal bar" : catégorie = commune, valeur = conso_mwh.
 --  Le nom de la commune vient d'un dictionnaire : pas de JOIN.
 SELECT
     dictGet('ref.dict_commune', 'nom', code_insee)      AS commune,
@@ -61,22 +62,22 @@ WHERE code_epci = '200054781' AND grandeur = 'CONS'
 GROUP BY code_insee
 ORDER BY conso_mwh DESC
 LIMIT 10;
--- Mesuré : 19 ms · 16 384 lignes lues (384,1 Ko)
+-- Mesuré : 12 ms · 16 384 lignes lues (384,1 Ko)
 -- À observer : Paris en tête (un seul code INSEE, 75056). Puis des communes comme Pantin ou Gagny :
 --    peu de compteurs mais un site industriel C2, d'où les kWh par compteur élevés.
 
 
 -- TUILE 4 · KPI "99 % des données à 9h", dernier jour et tendance
---  4a · Le chiffre du jour (tuile "Big number")
+--  4a · Le chiffre du jour, visualisation "Big Stat" sur taux_dernier_jour_pct
 --  argMax(taux, jour) : le taux du jour le plus récent, sans sous-requête.
 SELECT
     argMax(taux_donnees_9h_pct, jour)                 AS taux_dernier_jour_pct,
     max(jour)                                         AS dernier_jour,
     countIf(taux_donnees_9h_pct < 99)                 AS jours_sous_la_cible_ce_mois
 FROM gold.kpi_completude_jour;
--- Mesuré : 27 ms · 31 lignes lues
+-- Mesuré : 21 ms · 31 lignes lues
 
---  4b · La tendance (graphique "Line" avec la cible en 2e série)
+--  4b · La tendance, visualisation "Line" : X = jour, Y = taux_donnees_9h_pct et cible_pct
 SELECT jour, taux_donnees_9h_pct, 99 AS cible_pct
 FROM gold.kpi_completude_jour
 ORDER BY jour;
@@ -84,7 +85,7 @@ ORDER BY jour;
 
 
 -- TUILE 5 · Les alertes de dépassement du dernier jour connu
---  Graphique "Table", trié par gravité.
+--  Visualisation "Table", triée par gravité.
 --  La sous-requête (SELECT max(jour) …) suit l'actualité : pas de date en dur.
 SELECT
     commune,
@@ -98,7 +99,7 @@ FROM gold.alertes_pmax
 WHERE jour = (SELECT max(jour) FROM gold.alertes_pmax)
   AND code_epci = '200054781'
 ORDER BY depassement_pct DESC;
--- Mesuré : 30 ms · 258 lignes lues (10,7 Ko)
+-- Mesuré : 13 ms · 258 lignes lues (10,7 Ko)
 --  Toutes collectivités confondues, pour l'exploitant :
 SELECT
     dictGet('ref.dict_epci', 'nom', code_epci)  AS epci,
@@ -108,7 +109,35 @@ FROM gold.alertes_pmax
 WHERE jour = (SELECT max(jour) FROM gold.alertes_pmax)
 GROUP BY epci
 ORDER BY alertes DESC;
--- Mesuré : 6 ms · 258 lignes lues (2,9 Ko)
+-- Mesuré : 5 ms · 258 lignes lues (2,9 Ko)
+
+
+-- TUILE 6 · La carte de chaleur du mois : jour × heure
+--  Visualisation "Heatmap" : X = heure, Y = jour, valeur = conso_mw.
+--  Une seule image montre tout : la pointe du soir chaque jour, les week-ends
+--  plus calmes en journée, et la montée de la consommation au fil d'octobre.
+--  toHour(ts - 900) : ts marque la FIN de la demi-heure, on prend son milieu.
+SELECT
+    toDate(ts - 1, 'Europe/Paris')        AS jour,
+    toHour(ts - 900, 'Europe/Paris')      AS heure,
+    round(avg(puissance_kw) / 1000, 2)    AS conso_mw
+FROM gold.courbe_epci
+WHERE code_epci = '200054781' AND grandeur = 'CONS'
+GROUP BY jour, heure
+ORDER BY jour, heure;
+-- Mesuré : 4 ms · 8 192 lignes lues (112,1 Ko)
+-- À observer : 744 cellules (31 jours × 24 heures), lues dans quelques milliers de lignes gold.
+
+
+-- TUILE 7 · Le poids de chaque métropole dans la consommation du mois
+--  Visualisation "Doughnut" (ou "Pie") : catégorie = collectivite, valeur = conso_mwh.
+SELECT
+    collectivite,
+    round(sum(conso_kwh) / 1000)          AS conso_mwh
+FROM gold.synthese_collectivite_jour
+GROUP BY collectivite
+ORDER BY conso_mwh DESC;
+-- Mesuré : 2 ms · 186 lignes lues (5,7 Ko)
 
 
 -- ÉTAPE 6 · Ce que coûtent nos tuiles : le journal des requêtes
@@ -134,12 +163,14 @@ LIMIT 10;
 
 -- CHECKPOINT MODULE 8 (1/3)
 --  Chaque tuile doit renvoyer des données : 96 points de courbe (48 CONS + 48 PROD),
---  31 jours, plus de 100 communes, 31 jours de KPI, au moins une alerte.
+--  31 jours, plus de 100 communes, 31 jours de KPI, au moins une alerte, 744 cellules de heatmap.
 SELECT
     if((SELECT count() FROM gold.courbe_epci WHERE code_epci = '200054781'
           AND ts > toDateTime('2026-10-15', 'Europe/Paris') AND ts <= toDateTime('2026-10-16', 'Europe/Paris')) = 96, 'OK', 'KO') AS tuile_courbe,
     if((SELECT count() FROM gold.synthese_collectivite_jour WHERE id_destinataire = '488903') = 31, 'OK', 'KO') AS tuile_energie,
     if((SELECT uniqExact(code_insee) FROM gold.energie_commune_jour WHERE code_epci = '200054781') > 100, 'OK', 'KO') AS tuile_communes,
     if((SELECT count() FROM gold.kpi_completude_jour) = 31, 'OK', 'KO') AS tuile_kpi,
-    if((SELECT count() FROM gold.alertes_pmax WHERE jour = (SELECT max(jour) FROM gold.alertes_pmax)) > 0, 'OK', 'KO') AS tuile_alertes
+    if((SELECT count() FROM gold.alertes_pmax WHERE jour = (SELECT max(jour) FROM gold.alertes_pmax)) > 0, 'OK', 'KO') AS tuile_alertes,
+    if((SELECT count() FROM (SELECT toDate(ts - 1, 'Europe/Paris') AS j, toHour(ts - 900, 'Europe/Paris') AS h FROM gold.courbe_epci
+        WHERE code_epci = '200054781' AND grandeur = 'CONS' GROUP BY j, h)) = 744, 'OK', 'KO') AS tuile_heatmap
 SETTINGS select_sequential_consistency = 1;

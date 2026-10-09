@@ -33,7 +33,7 @@ ORDER BY grandeur, ts;
 SELECT *
 FROM gold.api_courbe_collectivite(id_destinataire = '488903', debut = '2026-10-15', fin = '2026-10-15')
 LIMIT 10;
--- Mesuré : 30 ms · 8 198 lignes lues (144,2 Ko)
+-- Mesuré : 26 ms · 8 198 lignes lues (144,2 Ko)
 -- Attention : dans la console, un panneau "Query variables" peut s'ouvrir : laissez-le vide.
 
 
@@ -55,7 +55,7 @@ ORDER BY jour;
 
 SELECT *
 FROM gold.api_synthese_collectivite(id_destinataire = '488904', debut = '2026-10-01', fin = '2026-10-07');
--- Mesuré : 8 ms · 186 lignes lues (11,2 Ko)
+-- Mesuré : 29 ms · 186 lignes lues (11,2 Ko)
 
 
 -- ÉTAPE 3 · La requête à enregistrer pour le Query API endpoint
@@ -79,7 +79,7 @@ FROM gold.api_synthese_collectivite(id_destinataire = '488904', debut = '2026-10
 SELECT grandeur, count() AS points, round(max(puissance_kw) / 1000, 2) AS pointe_mw
 FROM gold.api_courbe_collectivite(id_destinataire = '488903', debut = '2026-10-15', fin = '2026-10-15')
 GROUP BY grandeur;
--- Mesuré : 8 ms · 8 198 lignes lues (112,2 Ko)
+-- Mesuré : 9 ms · 8 198 lignes lues (112,2 Ko)
 
 
 -- ÉTAPE 4 · Sécurité : l'endpoint s'exécute avec un RÔLE de base de données
