@@ -17,13 +17,81 @@ déterministes : tout le monde obtient les mêmes chiffres.
 
 ## L'architecture du workshop
 
-![Le pipeline complet du workshop](docs/pipeline_complet.png)
-
 Chaque flèche est une vue SQL : rien ne tourne en dehors de ClickHouse.
-- **Flèche pleine** : vue matérialisée incrémentale, déclenchée à chaque INSERT (temps réel).
-- **Flèche pointillée** : vue rafraîchissable, recalculée toutes les 10 minutes à partir des tables silver lues avec FINAL.
-- **Bronze** garde le JSON brut (1 ligne = 1 fichier). **Silver** le transforme en points typés et dédupliqués. **Gold** contient des agrégats prêts à lire, exposés au dashboard, à l'API (vues paramétrées, row policy) et à l'agent.
-- Autour du flux principal : la table de 1,5 milliard de points (module 06), le rejeu d'un mois (module 07), l'observabilité par les tables `system.*`.
+Flèche pleine : vue matérialisée incrémentale, déclenchée à chaque INSERT. Flèche pointillée : vue rafraîchissable, recalculée toutes les 10 minutes à partir des tables silver lues avec FINAL.
+
+```mermaid
+flowchart LR
+    subgraph SRC["Sources"]
+        direction TB
+        SIM["Simulateur SQL<br/>UDF + 3 vues paramétrées<br/>qui fabriquent les fichiers"]
+        CP["En production<br/>ClickPipes depuis un bucket S3"]
+        GEO["geo.api.gouv.fr<br/>lu avec url()"]
+        REF["ref.*<br/>communes, PRM, kVA"]
+        DICT["5 dictionnaires<br/>dictGet en silver et gold"]
+    end
+    subgraph BRZ["Bronze"]
+        RAW["bronze.flux_raw<br/>1 ligne = 1 fichier<br/>CDC, ENERGIE, PMAX<br/>JSON brut, ZSTD x15, TTL 90 jours"]
+    end
+    subgraph SLV["Silver"]
+        CC["silver.courbe_charge<br/>ReplacingMergeTree<br/>1 ligne = 1 point, UTC"]
+        REJ["silver.rejets<br/>valeurs illisibles"]
+        PM["silver.pmax_jour<br/>ReplacingMergeTree"]
+        EJ["silver.energie_jour<br/>ReplacingMergeTree"]
+    end
+    subgraph GLD["Gold"]
+        COL["collecte_prm_jour<br/>AggregatingMergeTree, temps réel"]
+        KPI["kpi_completude_jour<br/>rafraîchie à 9h"]
+        CE["courbe_epci<br/>toutes les 10 min"]
+        ECJ["energie_commune_jour<br/>toutes les 10 min"]
+        SYN["synthese_collectivite_jour<br/>DEPENDS ON energie_commune_jour"]
+        AL["alertes_pmax<br/>puissance à date"]
+        REC["v_reconciliation<br/>énergie jour vs courbe"]
+    end
+    subgraph EXP["Exposition"]
+        APIC["api_courbe_collectivite<br/>vue paramétrée"]
+        APIS["api_synthese_collectivite<br/>vue paramétrée"]
+        RP["row policy<br/>role_grand_paris"]
+    end
+    subgraph USG["Usages"]
+        DASH["Dashboard<br/>5 tuiles, 6 à 28 ms"]
+        QAPI["Query API<br/>endpoint HTTPS, 3 à 30 ms"]
+        AGT["ClickHouse Agents<br/>questions en français"]
+    end
+
+    SIM -- INSERT --> RAW
+    CP -.-> RAW
+    GEO --> REF --> DICT
+    RAW -- MV --> CC
+    RAW -- MV --> REJ
+    RAW -- MV --> PM
+    RAW -- MV --> EJ
+    CC -- MV --> COL
+    COL -.-> KPI
+    CC -. FINAL .-> CE
+    CC -. FINAL .-> ECJ
+    ECJ -.-> SYN
+    PM -.-> AL
+    EJ -.-> REC
+    CE --> APIC --> QAPI
+    SYN --> APIS --> QAPI
+    RP --- APIC
+    CE --> DASH
+    ECJ --> DASH
+    AL --> DASH
+    GLD --> AGT
+```
+
+| Couche | Objets | Ce qu'il faut retenir |
+|---|---|---|
+| **Sources** | simulateur SQL (fonctions `sim_*`, 3 vues paramétrées), `geo.api.gouv.fr`, référentiels `ref.*`, 5 dictionnaires | tout est généré en SQL ; en production, ClickPipes lit les fichiers dans un bucket S3 |
+| **Bronze** | `bronze.flux_raw` | 1 ligne = 1 fichier JSON brut (CDC, ENERGIE, PMAX), compressé ×15, purgé après 90 jours |
+| **Silver** | `courbe_charge`, `rejets`, `pmax_jour`, `energie_jour` | 4 vues matérialisées déplient le JSON à chaque INSERT ; ReplacingMergeTree garde la dernière version |
+| **Gold** | `collecte_prm_jour`, `kpi_completude_jour`, `courbe_epci`, `energie_commune_jour`, `synthese_collectivite_jour`, `alertes_pmax`, `v_reconciliation` | 1 vue matérialisée temps réel, 5 vues rafraîchissables (10 min ou 9h), 1 vue simple |
+| **Exposition** | `api_courbe_collectivite`, `api_synthese_collectivite`, row policies du rôle `role_grand_paris` | le portail n'envoie que des paramètres ; la sécurité par territoire est dans la base |
+| **Usages** | dashboard, Query API endpoint, ClickHouse Agents | tout lit gold, en quelques millisecondes |
+
+Autour du flux principal : la table de 1,5 milliard de points (module 06), le rejeu d'un mois publié par REPLACE PARTITION (module 07), l'observabilité par les tables `system.*`.
 
 Les mots et abréviations de la journée sont dans le [lexique](#lexique).
 
@@ -127,7 +195,7 @@ Les résultats détaillés de chaque fichier sont dans `logs/`. Les modules dép
 
 ## Lexique
 
-![Lexique : les abréviations de la journée](docs/lexique.png)
+Tout ce qui apparaît dans les slides et dans le repo, en une ligne.
 
 | Métier énergie | | ClickHouse | | Plateforme et données | |
 |---|---|---|---|---|---|
@@ -158,7 +226,6 @@ Les résultats détaillés de chaque fichier sont dans `logs/`. Les modules dép
 data/                 référentiels INSEE de secours (si geo.api.gouv.fr ne répond pas)
 run_all.sh, reset.sql exécution complète et nettoyage
 RESULTATS.md          chiffres mesurés sur le service de test, module par module
-docs/                 schéma du pipeline et lexique (images)
 ```
 
 ## Bonnes pratiques ClickHouse illustrées
