@@ -6,7 +6,7 @@ Gold est prêt : petites tables, triées selon les filtres, rafraîchies toutes 
 |---|---|---|
 | L'exploitant, le chef de projet | Un dashboard de 5 tuiles, filtrable par collectivité et par jour | ce README, partie 1 |
 | Le portail d'une collectivité | Une API HTTPS sans SQL côté client | partie 2 |
-| Tout le monde | Un agent qui répond en français et construit des dashboards | partie 3 |
+| Tout le monde | Un agent qui répond en français, construit des dashboards et fait de la data science | partie 3 |
 
 Durée : 1 h. Tout se fait dans la console Cloud, en suivant les étapes ci-dessous : il n'y a pas de fichier SQL à exécuter dans ce module. Prérequis : les modules 00 à 07 ont tourné sur votre service.
 
@@ -305,7 +305,7 @@ Mesuré (même requête, client natif et HTTPS direct) : 3 à 30 ms, ~8 200 lign
 
 ## 3. ClickHouse Agents (35 min)
 
-Un agent ne devine pas le métier : il lit le schéma. On documente donc gold, on crée l'agent avec les bons outils, puis on lui pose 10 questions, on lui fait construire 6 dashboards et on lui confie 3 exercices de data science.
+Un agent ne devine pas le métier : il lit le schéma. On documente donc gold, on crée l'agent avec les bons outils, puis on lui pose 2 questions pour prendre la main, puis on lui fait construire 6 dashboards et on lui confie 3 exercices de data science.
 
 ### Étape 1 · Documenter gold pour l'agent [testé]
 Un agent commence par lire les tables, leurs colonnes et leurs **commentaires** (règle `agent-discovery-schema`). Sans commentaires, il devine que `ts` est en heure locale ou que `488903` est un code postal. Ces commandes ne touchent que les métadonnées : instantané, aucune donnée réécrite.
@@ -357,7 +357,7 @@ Vérifiez :
 ```sql
 SELECT name, comment FROM system.tables WHERE database = 'gold' AND comment != '' ORDER BY name;
 ```
-Attendu : 5 tables commentées (`alertes_pmax`, `courbe_epci`, `energie_commune_jour`, `kpi_completude_jour`, `synthese_collectivite_jour`).
+Attendu : 6 tables commentées (`alertes_pmax`, `courbe_epci`, `energie_commune_jour`, `kpi_completude_jour`, `profil_prm`, `synthese_collectivite_jour`). `profil_prm` est commentée dès sa création au module 05.
 
 ### Étape 2 · Créer et configurer l'agent [console]
 1. Dans la barre latérale du service, cliquez sur **ClickHouse agents**, puis **Launch ClickHouse agents**.
@@ -377,7 +377,7 @@ Attendu : 5 tables commentées (`alertes_pmax`, `courbe_epci`, `energie_commune_
 
 Sans l'outil **ClickHouse**, l'agent ne voit pas vos données. Sans **Artifacts**, il répond en texte mais ne construit pas de dashboard.
 
-Instructions à coller :
+Instructions à coller (un seul bloc, à jour) :
 ```
 Tu es l'assistant data d'un gestionnaire de réseau de distribution d'électricité. Tu réponds
 en français à des questions métier sur la collecte des données de comptage d'octobre 2026.
@@ -391,6 +391,41 @@ en français à des questions métier sur la collecte des données de comptage d
   puis construis un artifact interactif avec les VRAIES valeurs obtenues (jamais de données
   inventées), des titres en français, les unités (MW, MWh, %) et 2 ou 3 phrases d'analyse.
 - Sinon, donne les chiffres clés avec leur unité, puis la requête SQL utilisée.
+
+Data science avec l'outil Run Code :
+- Tu exécutes toujours toi-même le code Python dans l'outil Run Code. Ne propose jamais un
+  script à lancer, n'utilise jamais clickhouse_connect ni aucune connexion à une base.
+- Méthode, toujours la même :
+  1. une requête avec l'outil ClickHouse qui renvoie moins de 100 lignes (agrège ou
+     échantillonne dans ClickHouse) ;
+  2. copie le résultat tel quel dans ton code Python ;
+  3. exécute le code dans Run Code et montre les chiffres et un graphique.
+- Courbe d'un territoire : une ligne par jour, avec les 48 demi-heures dans un tableau :
+  SELECT jour, toDayOfWeek(jour) >= 6 AS week_end,
+         arrayMap(x -> x.2, arraySort(groupArray((demi_heure, mw)))) AS conso_mw
+  FROM (SELECT toDate(ts - 1800, 'Europe/Paris') AS jour,
+               toHour(ts - 1800, 'Europe/Paris') * 2 + intDiv(toMinute(ts - 1800, 'Europe/Paris'), 30) AS demi_heure,
+               round(avg(puissance_kw) / 1000, 2) AS mw
+        FROM gold.courbe_epci
+        WHERE code_epci = '<code EPCI>' AND grandeur = 'CONS'
+        GROUP BY jour, demi_heure)
+  GROUP BY jour ORDER BY jour
+- Formes des compteurs (30 par segment C5, C4, C2) :
+  SELECT segment, profil, arrayMap(x -> round(x, 2), forme_semaine) AS semaine,
+         arrayMap(x -> round(x, 2), forme_weekend) AS weekend
+  FROM gold.profil_prm ORDER BY cityHash64(id_prm) LIMIT 30 BY segment
+  Si gold.profil_prm n'existe pas, dis-le en une phrase : elle se crée avec le fichier
+  05_gold/04_formes_compteurs.sql du workshop. N'utilise pas silver à la place.
+- Prévision : HistGradientBoostingRegressor(max_iter=300, learning_rate=0.05, random_state=0)
+  avec demi_heure, week_end et jour du mois. Compare toujours son erreur (MAPE) à deux méthodes
+  naïves alignées par demi-heure : la veille, et le même jour de la semaine précédente.
+- Segmentation : KMeans(n_clusters=3, n_init=10, random_state=0) sur les 48 valeurs de forme
+  (semaine puis week-end), puis croise les familles avec le segment ET le profil.
+- Profilage : sépare 70 % / 30 % (stratifié par segment), forme type = centre du groupe
+  KMeans appris sur les 70 %, erreur moyenne en % par segment sur les 30 %, comparée à une
+  courbe plate.
+- Présente toujours le résultat dans un artifact : les graphiques, un tableau des chiffres
+  clés (erreurs, effectifs des groupes) et 3 à 5 phrases d'analyse en français, sans jargon.
 ```
 
 ### Étape 3 · Ouvrir une conversation [console]
@@ -398,13 +433,10 @@ en français à des questions métier sur la collecte des données de comptage d
 2. En haut de la page, choisissez `Assistant Énergie` dans la liste, puis cliquez sur **Select**.
 3. Une conversation s'ouvre. Les conversation starters apparaissent comme boutons.
 
-### Étape 4 · Poser les 10 questions
-Copiez chaque question telle quelle dans la conversation. Comparez la réponse au résultat attendu. La requête de vérification (dépliez-la) donne le vrai chiffre si vous voulez le recalculer dans la console SQL.
+### Étape 4 · Poser 2 questions pour prendre la main
+Deux questions suffisent pour voir comment l'agent travaille : il lit les commentaires, écrit le SQL, filtre sur la clé de tri. Le plus intéressant vient ensuite, avec les dashboards et la data science.
 
-Ce qui distingue une bonne réponse :
-- les bons chiffres ;
-- un filtre sur la clé de tri et un `LIMIT` (règle `agent-query-safety`) ;
-- les pièges évités : l'heure UTC (Q3), l'identifiant de collectivité à chercher (Q2), le total de compteurs à additionner sur les segments (Q4).
+Copiez chaque question telle quelle dans la conversation et comparez la réponse au résultat attendu. La requête de vérification (dépliez-la) donne le vrai chiffre.
 
 **Q1** · "Combien la Métropole du Grand Paris a-t-elle consommé en octobre, et quelle part a été couverte par la production solaire locale ?"
 
@@ -421,22 +453,7 @@ WHERE id_destinataire = '488903';
 ```
 </details>
 
-**Q2** · "Quel jour d'octobre la Métropole de Lyon a-t-elle le plus consommé ?"
-
-Attendu : le 30 octobre, ~80 MWh. Piège : l'agent doit trouver l'id 488904 dans ref.destinataire.
-
-<details><summary>Requête de vérification</summary>
-
-```sql
-SELECT jour, round(conso_kwh / 1000, 1) AS conso_mwh
-FROM gold.synthese_collectivite_jour
-WHERE id_destinataire = (SELECT id_destinataire FROM ref.destinataire WHERE nom = 'Métropole de Lyon')
-ORDER BY conso_kwh DESC
-LIMIT 1;
-```
-</details>
-
-**Q3** · "À quelle heure était la pointe de consommation du Grand Paris le 15 octobre, et combien de MW ?"
+**Q2** · "À quelle heure était la pointe de consommation du Grand Paris le 15 octobre, et combien de MW ?"
 
 Attendu : 19h00 (heure de Paris), ~21,9 MW. Piège : ts est en UTC et marque la FIN de la demi-heure.
 
@@ -449,122 +466,6 @@ WHERE code_epci = '200054781' AND grandeur = 'CONS'
   AND ts > toDateTime('2026-10-15', 'Europe/Paris') AND ts <= toDateTime('2026-10-16', 'Europe/Paris')
 ORDER BY puissance_kw DESC
 LIMIT 1;
-```
-</details>
-
-**Q4** · "Quelles sont les 5 communes du Grand Paris qui consomment le plus par compteur ?"
-
-Attendu : Pantin (~223 kWh/compteur/jour), Morangis, Fresnes, Gagny, Bourg-la-Reine. Bonne réponse : l'agent explique que ce sont des communes avec un site industriel (C2).
-
-<details><summary>Requête de vérification</summary>
-
-```sql
-SELECT dictGet('ref.dict_commune', 'nom', code_insee) AS commune,
-       round(sum(energie_kwh) / sum(nb_prm), 1)       AS kwh_par_compteur_et_par_jour,
-       round(sum(nb_prm) / uniqExact(jour))           AS nb_compteurs
-FROM gold.energie_commune_jour
-WHERE code_epci = '200054781' AND grandeur = 'CONS'
-GROUP BY code_insee
-HAVING nb_compteurs >= 20                              -- on écarte les communes trop petites
-ORDER BY kwh_par_compteur_et_par_jour DESC
-LIMIT 5;
-```
-</details>
-
-**Q5** · "Combien d'alertes de dépassement de puissance le 30 octobre, et sur quels sites ?"
-
-Attendu : 6 alertes, toutes en C4 ; la pire à Paris (+25 %).
-
-<details><summary>Requête de vérification</summary>
-
-```sql
-SELECT dictGet('ref.dict_epci', 'nom', code_epci) AS epci, commune, segment, id_prm,
-       kva_souscrit, round(pmax_va / 1000, 1) AS pmax_kva, depassement_pct
-FROM gold.alertes_pmax
-WHERE jour = '2026-10-30'
-ORDER BY depassement_pct DESC
-LIMIT 50;
-```
-</details>
-
-**Q6** · "Quels jours le KPI des 99 % à 9h n'a-t-il pas été atteint ?"
-
-Attendu : 6 jours (10, 16, 19, 22, 25 et 27 octobre), entre 89,7 et 94,7 %. Relance attendue : "Pourquoi ?" → les fichiers arrivés après 9h 1 ou 2 fichiers (lots de 1000 compteurs) arrivés à 14h le lendemain.
-
-<details><summary>Requête de vérification</summary>
-
-```sql
-SELECT jour, taux_donnees_9h_pct
-FROM gold.kpi_completude_jour
-WHERE taux_donnees_9h_pct < 99
-ORDER BY jour;
-SELECT toDate(ingested_at, 'Europe/Paris') - 1 AS jour, count() AS fichiers_en_retard,
-       min(toTimeZone(ingested_at, 'Europe/Paris')) AS premiere_arrivee
-FROM bronze.flux_raw
-WHERE code_flux = 'CDC' AND toHour(ingested_at, 'Europe/Paris') >= 9
-  AND file_name NOT LIKE '%RENVOI%' AND file_name NOT LIKE '%CORRECTION%'
-GROUP BY jour
-ORDER BY jour;
-```
-</details>
-
-**Q7** · "Classe les métropoles de la plus solaire à la moins solaire."
-
-Attendu : Toulouse et Nantes en tête (~5,3 %), Lyon dernière (~3,4 %).
-
-<details><summary>Requête de vérification</summary>
-
-```sql
-SELECT collectivite, round(100 * sum(prod_kwh) / sum(conso_kwh), 1) AS couverture_pct
-FROM gold.synthese_collectivite_jour
-GROUP BY collectivite
-ORDER BY couverture_pct DESC;
-```
-</details>
-
-**Q8** · "De combien la consommation de Toulouse baisse-t-elle le week-end ?"
-
-Attendu : ~0,71, soit environ 29 % de moins le week-end.
-
-<details><summary>Requête de vérification</summary>
-
-```sql
-SELECT round(avgIf(conso_kwh, toDayOfWeek(jour) >= 6) / avgIf(conso_kwh, toDayOfWeek(jour) <= 5), 2) AS ratio_weekend_semaine
-FROM gold.synthese_collectivite_jour
-WHERE id_destinataire = '488906';
-```
-</details>
-
-**Q9** · "Quelle part de la consommation vient des particuliers et petits pros (C5), des PME (C4) et des industriels (C2), métropole par métropole ?"
-
-Attendu : les C5 entre 43 et 62 %. La part C2 varie beaucoup (6 à 39 %) : quelques gros sites suffisent.
-
-<details><summary>Requête de vérification</summary>
-
-```sql
-SELECT dictGet('ref.dict_epci', 'nom', code_epci) AS epci,
-       round(100 * sumIf(energie_kwh, segment = 'C5') / sum(energie_kwh), 1) AS c5_pct,
-       round(100 * sumIf(energie_kwh, segment = 'C4') / sum(energie_kwh), 1) AS c4_pct,
-       round(100 * sumIf(energie_kwh, segment = 'C2') / sum(energie_kwh), 1) AS c2_pct
-FROM gold.energie_commune_jour
-WHERE grandeur = 'CONS'
-GROUP BY epci
-ORDER BY epci;
-```
-</details>
-
-**Q10** · "Quels compteurs ont une énergie journalière qui ne colle pas à leur courbe CDC (écart > 3 %) ?"
-
-Attendu : Question plus difficile : la réponse est dans une vue (gold.v_reconciliation), pas une table. des écarts de 7 à 8 % avec 46 points au lieu de 48. Bonne réponse : l'agent relie l'écart aux points manquants de la courbe (l'énergie journalière vient des index, il est complet).
-
-<details><summary>Requête de vérification</summary>
-
-```sql
-SELECT jour, id_prm, energie_jour_kwh, round(energie_courbe_kwh, 2) AS energie_courbe_kwh, nb_points, ecart_pct
-FROM gold.v_reconciliation
-WHERE abs(ecart_pct) > 3
-ORDER BY abs(ecart_pct) DESC
-LIMIT 20;
 ```
 </details>
 
@@ -691,47 +592,10 @@ Attendu : C2 ENT 40, C4 PRO ~230, C5 PRO ~2 360, C5 RES ~17 370.
 
 Si vous voyez `Table gold.profil_prm does not exist`, ouvrez `05_gold/04_formes_compteurs.sql`, collez-le dans la console et exécutez tout (Cmd+Entrée) : moins d'une seconde. Sans cette table, l'agent vous répondra qu'il ne peut pas faire les exemples 2 et 3. C'est le bon comportement : il ne doit pas inventer de données.
 
-**6.2 · Ajouter les consignes de data science à l'agent [console]**
-Run Code exécute du Python dans un bac à sable, qui n'a pas vos identifiants ClickHouse. Sans consigne, l'agent écrit un script avec `clickhouse_connect` et vous demande de le lancer vous-même. On lui donne donc la méthode une fois pour toutes, dans ses instructions.
+**6.2 · Les consignes de data science [console]**
+Run Code exécute du Python dans un bac à sable, qui n'a pas vos identifiants ClickHouse. Sans consigne, l'agent écrit un script avec `clickhouse_connect` et vous demande de le lancer vous-même. La méthode lui est donc donnée une fois pour toutes, dans la partie « Data science avec l'outil Run Code » de ses instructions (étape 2) : requête compacte avec l'outil ClickHouse, données collées dans le code, exécution dans Run Code, résultat dans un artifact.
 
-Rouvrez l'agent, onglet **Instructions**, **Inline**, et ajoutez ce bloc à la fin :
-```
-Data science avec l'outil Run Code :
-- Tu exécutes toujours toi-même le code Python dans l'outil Run Code. Ne propose jamais un
-  script à lancer, n'utilise jamais clickhouse_connect ni aucune connexion à une base.
-- Méthode, toujours la même :
-  1. une requête avec l'outil ClickHouse qui renvoie moins de 100 lignes (agrège ou
-     échantillonne dans ClickHouse) ;
-  2. copie le résultat tel quel dans ton code Python ;
-  3. exécute le code dans Run Code et montre les chiffres et un graphique.
-- Courbe d'un territoire : une ligne par jour, avec les 48 demi-heures dans un tableau :
-  SELECT jour, toDayOfWeek(jour) >= 6 AS week_end,
-         arrayMap(x -> x.2, arraySort(groupArray((demi_heure, mw)))) AS conso_mw
-  FROM (SELECT toDate(ts - 1800, 'Europe/Paris') AS jour,
-               toHour(ts - 1800, 'Europe/Paris') * 2 + intDiv(toMinute(ts - 1800, 'Europe/Paris'), 30) AS demi_heure,
-               round(avg(puissance_kw) / 1000, 2) AS mw
-        FROM gold.courbe_epci
-        WHERE code_epci = '<code EPCI>' AND grandeur = 'CONS'
-        GROUP BY jour, demi_heure)
-  GROUP BY jour ORDER BY jour
-- Formes des compteurs (30 par segment C5, C4, C2) :
-  SELECT segment, profil, arrayMap(x -> round(x, 2), forme_semaine) AS semaine,
-         arrayMap(x -> round(x, 2), forme_weekend) AS weekend
-  FROM gold.profil_prm ORDER BY cityHash64(id_prm) LIMIT 30 BY segment
-  Si gold.profil_prm n'existe pas, dis-le en une phrase : elle se crée avec le fichier
-  05_gold/04_formes_compteurs.sql du workshop. N'utilise pas silver à la place.
-- Prévision : HistGradientBoostingRegressor(max_iter=300, learning_rate=0.05, random_state=0)
-  avec demi_heure, week_end et jour du mois. Compare toujours son erreur (MAPE) à deux méthodes
-  naïves alignées par demi-heure : la veille, et le même jour de la semaine précédente.
-- Segmentation : KMeans(n_clusters=3, n_init=10, random_state=0) sur les 48 valeurs de forme
-  (semaine puis week-end), puis croise les familles avec le segment ET le profil.
-- Profilage : sépare 70 % / 30 % (stratifié par segment), forme type = centre du groupe
-  KMeans appris sur les 70 %, erreur moyenne en % par segment sur les 30 %, comparée à une
-  courbe plate.
-- Présente toujours le résultat dans un artifact : les graphiques, un tableau des chiffres
-  clés (erreurs, effectifs des groupes) et 3 à 5 phrases d'analyse en français, sans jargon.
-```
-Enregistrez l'agent, puis ouvrez une **nouvelle** conversation : les instructions ne s'appliquent qu'aux conversations qui commencent après.
+Si vous avez créé l'agent avant d'ajouter cette partie, recopiez le bloc complet de l'étape 2, enregistrez, puis ouvrez une **nouvelle** conversation.
 
 **6.3 · Les trois demandes**
 Une phrase suffit : la méthode est dans les instructions.
