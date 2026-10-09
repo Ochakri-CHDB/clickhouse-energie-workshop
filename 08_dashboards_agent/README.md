@@ -151,7 +151,7 @@ Mesuré sur le service de test (3 × 64 Go), filtre `Paris` : 6 à 28 ms par tui
 
 Le portail n'envoie que des paramètres (une collectivité, deux dates). Le SQL reste dans ClickHouse. On transforme une requête enregistrée en adresse HTTPS appelable avec une clé API.
 
-Légende : **[testé]** vérifié sur le service de test, **[console]** à faire dans l'interface, non vérifiable depuis un script.
+Légende : **[testé]** vérifié sur un service et un endpoint réels, **[console]** à faire dans l'interface.
 
 ### Étape 1 · Créer les deux vues de l'API [testé]
 Une **vue paramétrée** est une requête enregistrée dans la base, avec des paramètres `{nom:Type}`. On l'appelle comme une table : `SELECT * FROM gold.api_courbe_collectivite(id_destinataire = '488903', …)`. Le portail ne verra jamais que ces paramètres.
@@ -233,42 +233,51 @@ Attendu : du `2026-10-01` au `2026-10-31`.
 3. Exécutez (Cmd+Entrée). Attendu : **96 lignes** (48 demi-heures × CONS et PROD), pointe à ~21,9 MW vers 19h.
 4. Cliquez sur **Save** et nommez la requête `api_courbe_collectivite`.
 
-### Étape 4 · Créer la clé API [console]
+### Étape 4 · Créer la clé API [testé]
 1. Dans le menu de gauche de l'organisation, ouvrez **API Keys**, puis cliquez sur **New API Key**.
 2. Nom : `portail-collectivites`. Rôle d'organisation : **Member**. Accès au service : **Query Endpoints** sur votre service. Choisissez une date d'expiration.
 3. Facultatif : dans **Allow access to this API Key**, limitez aux adresses IP du portail.
 4. Cliquez sur **Generate API Key**. L'écran suivant affiche le **Key ID** et le **Key secret** : copiez-les tout de suite dans un coffre de mots de passe. Ils ne seront plus jamais affichés.
 
-### Étape 5 · Créer l'endpoint [console]
+### Étape 5 · Créer l'endpoint [testé]
 1. Rouvrez la requête enregistrée `api_courbe_collectivite`.
 2. Cliquez sur **Share**, puis **API Endpoint**.
 3. Choisissez la clé API de l'étape 4.
-4. Choisissez le **rôle de base de données** qui exécutera la requête. La console propose **Full access**, **Read only** ou la création d'un rôle personnalisé. Pour le workshop, prenez **Read only**.
-   À vérifier dans votre console : la possibilité de rattacher le rôle `role_grand_paris` du module 7, pour que l'endpoint ne voie que le Grand Paris. Ce n'est pas testé.
+4. Choisissez le **rôle de base de données** qui exécutera la requête : **Read only**, ou le rôle `role_grand_paris` du module 7 pour que l'endpoint ne voie que le Grand Paris.
 5. **CORS** : le domaine du portail (laissez vide pour un test en ligne de commande).
-6. Validez. La console affiche l'**identifiant de l'endpoint** (dans l'URL d'appel et l'exemple de commande proposé). Copiez-le.
+6. Validez. La console affiche l'**adresse d'appel**, de la forme `https://queries.clickhouse.cloud/run/<identifiant>`. Copiez-la.
 
-### Étape 6 · Appeler l'endpoint [console]
-Dans un terminal, mettez les trois valeurs dans des variables (jamais dans un fichier versionné) :
+### Étape 6 · Appeler l'endpoint [testé]
+Dans un terminal, mettez les valeurs dans des variables (jamais dans un fichier versionné) :
 ```bash
 export KEY_ID='<Key ID de l étape 4>'
 export KEY_SECRET='<Key secret de l étape 4>'
-export ENDPOINT_ID='<identifiant de l étape 5>'
+export ENDPOINT='https://queries.clickhouse.cloud/run/<identifiant de l étape 5>'
 ```
-Appel en POST, version 2 de l'endpoint :
+Appel en GET, les paramètres dans l'adresse :
 ```bash
-curl -X POST "https://console-api.clickhouse.cloud/.api/query-endpoints/$ENDPOINT_ID/run?format=JSONEachRow" \
-  --user "$KEY_ID:$KEY_SECRET" \
-  -H "Content-Type: application/json" \
-  -H "x-clickhouse-endpoint-version: 2" \
+curl -s --user "$KEY_ID:$KEY_SECRET" \
+  "$ENDPOINT?format=JSONEachRow&param_id_destinataire=488903&param_debut=2026-10-15&param_fin=2026-10-15"
+```
+Appel en POST, les paramètres dans le corps :
+```bash
+curl -s --user "$KEY_ID:$KEY_SECRET" -X POST -H "Content-Type: application/json" \
+  "$ENDPOINT?format=JSONEachRow" \
   -d '{"queryVariables": {"id_destinataire": "488903", "debut": "2026-10-15", "fin": "2026-10-15"}}'
 ```
-Ou en GET, les paramètres dans l'adresse :
-```bash
-curl "https://console-api.clickhouse.cloud/.api/query-endpoints/$ENDPOINT_ID/run?format=JSONEachRow&param_id_destinataire=488903&param_debut=2026-10-15&param_fin=2026-10-15" \
-  --user "$KEY_ID:$KEY_SECRET" -H "x-clickhouse-endpoint-version: 2"
-```
-Attendu : 96 lignes JSON, une par demi-heure et par grandeur. Erreurs possibles : `401` (clé ou droits), `404` (identifiant d'endpoint), `400` (paramètre mal formé). Délai maximal par défaut : 30 s.
+
+Résultats obtenus sur un endpoint réel :
+
+| Appel | Résultat |
+|---|---|
+| GET ou POST, Grand Paris (`488903`), le 15 octobre | HTTP 200, **96 lignes** (48 demi-heures × CONS et PROD), ~1 s |
+| GET, Grand Paris, du 13 au 19 octobre | HTTP 200, **672 lignes** (7 jours × 96) |
+| GET ou POST, Lyon (`488904`), endpoint créé avec le rôle `role_grand_paris` | HTTP 200, **0 ligne** : la row policy cache tout ce qui n'est pas le Grand Paris |
+
+Pièges rencontrés :
+- **`401 Unauthorized`** (et `Key is not found` sur l'API Cloud) : la clé est mal copiée. Le Key secret commence par `4b1d` : vérifiez que ce début n'a pas sauté au copier-coller. Pour tester la clé seule : `curl --user "$KEY_ID:$KEY_SECRET" https://api.clickhouse.cloud/v1/organizations` doit renvoyer votre organisation.
+- **Pas d'espace ni de caractère en trop dans l'adresse** : `param_id_destinataire=488903`, et non `param_id_destinataire= 488903` ; `param_fin=2026-10-15`, et non `param_fin=<2026-10-15`. Les `<…>` des exemples sont à remplacer en entier.
+- `404` : l'identifiant de l'endpoint est faux. `400` : un paramètre est mal formé (date au format AAAA-MM-JJ).
 
 ### Étape 7 · Voir les appels côté serveur [testé]
 Chaque endpoint s'exécute sous un utilisateur dédié nommé `queryEndpoint:<identifiant>` :
