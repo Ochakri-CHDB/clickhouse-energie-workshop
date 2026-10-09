@@ -112,7 +112,7 @@ LIMIT 5;
 -- À observer : quelques millisecondes par appel. C'est ce que paiera le front à chaque écran.
 
 
--- CHECKPOINT MODULE 8 (2/3)
+-- CHECKPOINT MODULE 8 (1/2)
 --  Une journée = 96 points, une semaine = 7 jours, un destinataire inconnu = rien.
 SELECT
     if((SELECT count() FROM gold.api_courbe_collectivite(id_destinataire = '488903', debut = '2026-10-15', fin = '2026-10-15')) = 96, 'OK', 'KO') AS api_courbe,

@@ -54,7 +54,7 @@ Avec cette configuration, vous retrouverez les durées notées en commentaire (`
 | 2:55 | *Pause* | | 10 min |
 | 3:05 | **06** Performance | 1,5 milliard de points, index primaire, répliques parallèles, projection, index de saut, cache, SQL avancé | 30 min |
 | 3:35 | **07** Exploitation | Rejeu et publication atomique, TTL, DELETE, row policies, observabilité en SQL | 25 min |
-| 4:00 | **08** Dashboards, API, Agents | Dashboard filtrable de 8 tuiles, un Query API endpoint sécurisé, ClickHouse Agents : 10 questions et 6 dashboards construits par l'agent | 40 min |
+| 4:00 | **08** Dashboards, API, Agents | Dashboard de 5 tuiles filtrables, un Query API endpoint sécurisé, ClickHouse Agents : 10 questions et 6 dashboards construits par l'agent | 40 min |
 | 4:40 | Conclusion | Ce qu'on a vu, pour aller plus loin, questions | 20 min |
 
 Chaque module a un ou plusieurs fichiers `.sql`, à exécuter **dans l'ordre**. Le README du module 08 détaille les étapes dans la console (dashboard, API, agent).
@@ -122,7 +122,7 @@ Les résultats détaillés de chaque fichier sont dans `logs/`. Les modules dép
 05_gold/              agrégats, vues rafraîchissables, KPI 9h, alertes, réconciliation
 06_performance/       1,5 milliard de points, optimisations mesurées
 07_exploitation/      rejeu, TTL, sécurité, observabilité
-08_dashboards_agent/  tuiles, API, questions pour ClickHouse Agents (+ README)
+08_dashboards_agent/  dashboard pas à pas (README), API, questions pour ClickHouse Agents
 data/                 référentiels INSEE de secours (si geo.api.gouv.fr ne répond pas)
 run_all.sh, reset.sql exécution complète et nettoyage
 RESULTATS.md          chiffres mesurés sur le service de test, module par module

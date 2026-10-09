@@ -45,9 +45,8 @@ FICHIERS=(
   07_exploitation/01_rejeu_et_publication_atomique.sql
   07_exploitation/02_ttl_suppressions_securite.sql
   07_exploitation/03_observabilite.sql
-  08_dashboards_agent/01_tuiles_dashboard.sql
-  08_dashboards_agent/02_vue_parametree_api.sql
-  08_dashboards_agent/03_questions_agent.sql
+  08_dashboards_agent/01_vue_parametree_api.sql
+  08_dashboards_agent/02_questions_agent.sql
 )
 
 mkdir -p logs

@@ -123,8 +123,8 @@ Calibration du simulateur (vérifiée sur les 20 000 PRM et sur le parc de 1 M) 
 ## 08 · Dashboards, API, Agents
 | Mesure | Valeur |
 |---|---|
-| Tuiles du dashboard (gold), dont heatmap 31 × 24 | 2 à 30 ms, 31 à 16 384 lignes lues |
+| 5 tuiles du dashboard, filtrées par collectivité (gold) | 6 à 28 ms chacune |
 | Courbe Grand Paris du 15/10 | pointe 21,9 MW à 19h, production max 2,3 MW |
 | Vue paramétrée pour l'API | 3 à 30 ms, ~8 200 lignes pour une journée, 186 pour une semaine de synthèse |
 | Documentation du schéma pour l'agent (COMMENT) | 67 à 120 ms par table, métadonnées seulement |
-| 10 questions métier | réponses attendues vérifiées sur le service (voir `03_questions_agent.sql`) |
+| 10 questions métier | réponses attendues vérifiées sur le service (voir `02_questions_agent.sql`) |

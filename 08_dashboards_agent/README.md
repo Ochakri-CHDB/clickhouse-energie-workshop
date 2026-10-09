@@ -1,154 +1,149 @@
 # Module 8 · Dashboards, API et ClickHouse Agents
 
-Gold est prêt : petites tables, triées selon les filtres du front, rafraîchies toutes les 10 minutes. On les expose de trois façons, toutes depuis la console Cloud :
+Gold est prêt : petites tables, triées selon les filtres, rafraîchies toutes les 10 minutes. On les expose de trois façons, toutes depuis la console Cloud :
 
-| Pour qui | Quoi | Fichier |
+| Pour qui | Quoi | Où |
 |---|---|---|
-| L'exploitant, le chef de projet | Un dashboard de 8 tuiles, filtrable par collectivité | `01_tuiles_dashboard.sql` |
-| Le portail d'une collectivité | Une API HTTPS sans SQL côté client | `02_vue_parametree_api.sql` |
-| Tout le monde | Un agent qui répond en français et construit des dashboards | `03_questions_agent.sql` |
+| L'exploitant, le chef de projet | Un dashboard de 5 tuiles, filtrable par collectivité et par jour | ce README, partie 1 |
+| Le portail d'une collectivité | Une API HTTPS sans SQL côté client | `01_vue_parametree_api.sql` + partie 2 |
+| Tout le monde | Un agent qui répond en français et construit des dashboards | `02_questions_agent.sql` + partie 3 |
 
-Durée : 45 min. Exécutez d'abord les 3 fichiers SQL dans la console (Cmd+Entrée) : tous les checkpoints doivent afficher `OK`.
+Durée : 45 min. Avant de commencer, exécutez `01_vue_parametree_api.sql` et `02_questions_agent.sql` dans la console (Cmd+Entrée) : leurs checkpoints doivent afficher `OK`.
 
 > Les libellés ci-dessous sont ceux de la console ClickHouse Cloud en octobre 2026. Dashboards et ClickHouse Agents sont en **bêta** : un libellé peut avoir bougé, le principe ne change pas.
 
 ---
 
-## 1. Le dashboard « Énergie · Grand Paris » (20 min)
+## 1. Le dashboard « Énergie · Métropoles » (20 min)
 
-### Étape 1 · Enregistrer chaque requête de tuile
-Une tuile de dashboard affiche une **requête enregistrée** (saved query). Pour chaque tuile de `01_tuiles_dashboard.sql` :
-1. **SQL console**, ouvrez un nouvel onglet (`+`).
-2. Collez la requête de la tuile, exécutez-la (Cmd+Entrée) et vérifiez le résultat.
-3. Cliquez sur **Save**, donnez un nom parlant. Les noms proposés :
+5 tuiles, toutes filtrables dès leur création :
 
-| Tuile | Nom de la requête |
-|---|---|
-| 1 | `Courbe de charge du 15 octobre` |
-| 2 | `Énergie par jour` |
-| 3 | `Top 10 communes` |
-| 4a / 4b | `KPI 9h du jour` / `KPI 9h tendance` |
-| 5 | `Alertes du dernier jour` |
-| 6 | `Carte de chaleur jour × heure` |
-| 7 | `Poids des métropoles` |
-
-Astuce : vous pouvez aussi créer la requête directement depuis le dashboard (voir l'étape 3, « New query »).
-
-### Étape 2 · Créer le dashboard
-1. Barre latérale : **Dashboards**, puis **+ New Dashboard**.
-2. Nom : `Énergie · Grand Paris`. Le dashboard vide s'ouvre.
-
-### Étape 3 · Ajouter une tuile
-1. En haut à droite, **+ New visualization**. Une tuile vide apparaît (« New table, Add a query to your dashboard ») et le panneau **Edit element** s'ouvre à droite.
-2. Onglet **General**, champ **Query** :
-   - soit une requête enregistrée à l'étape 1 dans la liste ;
-   - soit **New query** : un **Inline Editor** s'ouvre. Collez la requête, exécutez-la avec le bouton ▷, puis enregistrez-la avec l'icône disquette.
-3. **Visualization type** : choisissez le type indiqué dans le tableau ci-dessous. Les types disponibles : Big Stat, Table, Bar Chart, Stacked bar, Horizontal bar, Stacked H. bar, Line, Area, Pie, Doughnut, Scatter, Heatmap.
-4. Onglet **Data** : associez les colonnes du résultat aux axes du graphique (axe X, séries Y, ou catégorie et valeur selon le type).
-5. Onglet **Advanced** : format des nombres, légende, libellés des axes. Facultatif.
-6. Donnez un **titre** à la tuile, fermez le panneau (×). Redimensionnez la tuile avec le coin en bas à droite, déplacez-la avec la poignée en haut à gauche.
-
-| Tuile | Visualization type | Axe X / catégorie | Y / valeur |
+| # | Tuile | Type | Filtres |
 |---|---|---|---|
-| 1 · Courbe CONS vs PROD | **Line** (ou Area) | `heure` | `conso_mw`, `prod_mw` |
-| 2 · Énergie par jour | **Stacked bar** | `jour` | `conso_mwh`, `prod_mwh` |
-| 3 · Top 10 communes | **Horizontal bar** | `commune` | `conso_mwh` |
-| 4a · KPI du jour | **Big Stat** | | `taux_dernier_jour_pct` |
-| 4b · KPI tendance | **Line** | `jour` | `taux_donnees_9h_pct`, `cible_pct` |
-| 5 · Alertes du dernier jour | **Table** | | toutes les colonnes |
-| 6 · Carte de chaleur | **Heatmap** | `heure` (X), `jour` (Y) | `conso_mw` |
-| 7 · Poids des métropoles | **Doughnut** | `collectivite` | `conso_mwh` |
+| 1 | Courbe de charge, consommation et production | Line | collectivité, jour |
+| 2 | Carte de chaleur du mois, jour × heure | Heatmap | collectivité |
+| 3 | Énergie par jour | Stacked bar | collectivité |
+| 4 | Top 10 des communes | Horizontal bar | collectivité |
+| 5 | Alertes de dépassement de puissance | Table | collectivité |
 
-Recommencez pour chaque tuile. Les deux plus spectaculaires à montrer en premier : la **Heatmap** (la pointe du soir apparaît comme une bande, jour après jour) et la **courbe CONS vs PROD**.
+Les filtres prennent des valeurs lisibles :
+- **collectivite** : un morceau du nom, sans se soucier des majuscules. `Paris`, `Lyon`, `Lille`, `Toulouse`, `Bordeaux` ou `Nantes`.
+- **jour** : une date d'octobre 2026 au format AAAA-MM-JJ, par exemple `2026-10-15`.
 
-### Étape 4 · Rendre le dashboard filtrable
-Un filtre de dashboard est un **paramètre de requête** : on remplace une valeur écrite en dur par `{nom:Type}`. Toutes les tuiles qui utilisent le **même nom de paramètre** suivent le même filtre.
+Comme les 5 tuiles utilisent les **mêmes noms de paramètres**, un seul filtre pilote tout le dashboard.
 
-On filtre avec des valeurs que tout le monde comprend :
+### Étape 1 · Créer le dashboard
+1. Dans la barre latérale du service, cliquez sur **Dashboards**.
+2. Cliquez sur **+ New Dashboard**.
+3. Nommez-le `Énergie · Métropoles`. Le dashboard vide s'ouvre.
 
-| Filtre | Ce qu'on tape | Exemples |
-|---|---|---|
-| `collectivite` | un morceau du nom, sans se soucier des majuscules | `Paris`, `Lyon`, `Lille`, `Toulouse`, `Bordeaux`, `Nantes` |
-| `jour` | une date au format AAAA-MM-JJ | `2026-10-15` |
+### Étape 2 · Ajouter une tuile (à répéter 5 fois)
+1. En haut à droite, cliquez sur **+ New visualization**. Une tuile vide apparaît et le panneau **Edit element** s'ouvre à droite.
+2. Onglet **General**, champ **Query** : choisissez **New query**. L'**Inline Editor** s'ouvre.
+3. Collez la requête de la tuile (fiches ci-dessous).
+4. À droite de l'éditeur, le panneau **Query Parameters** affiche les paramètres détectés. Saisissez les valeurs de test : `collectivite` = `Paris`, et pour la tuile 1 `jour` = `2026-10-15`.
+5. Exécutez avec le bouton ▷, vérifiez le résultat, puis enregistrez avec l'icône **disquette**, sous le nom de la tuile.
+6. **Visualization type** : choisissez le type indiqué sur la fiche.
+7. Onglet **Data** : associez les colonnes aux axes comme indiqué sur la fiche.
+8. Donnez un titre à la tuile et fermez le panneau (×). Redimensionnez la tuile par son coin en bas à droite, déplacez-la par la poignée en haut à gauche.
 
-Derrière, la requête retrouve le territoire dans `ref.destinataire` (« Paris » → Métropole du Grand Paris) et filtre gold sur son code. On garde donc la vitesse de la clé de tri sans demander de code à personne.
+### Les 5 fiches
 
-**4.1 · Mettre un paramètre dans chaque requête**
-1. Sur la tuile, cliquez sur les **trois points** (⋮) en haut à droite, puis sur le **crayon** à côté de la requête : l'Inline Editor s'ouvre.
-2. Remplacez la requête par sa version filtrable (ci-dessous). Dès que vous tapez `{collectivite:String}`, il apparaît dans le panneau **Query Parameters** à droite de l'éditeur.
-3. Donnez une valeur de test au paramètre (`Paris`), exécutez (▷), puis **enregistrez** (disquette). La requête enregistrée est mise à jour.
-
-Versions filtrables, testées sur le service pour les 6 métropoles (8 à 30 ms chacune) :
-
+#### Tuile 1 · Courbe de charge du jour
+Type **Line**. Axe X : `heure`. Séries Y : `conso_mw`, `prod_mw`.
 ```sql
--- Tuile 1 · courbe d'une collectivité, un jour donné
-SELECT toTimeZone(ts, 'Europe/Paris') AS heure,
-       round(sumIf(puissance_kw, grandeur = 'CONS') / 1000, 2) AS conso_mw,
-       round(sumIf(puissance_kw, grandeur = 'PROD') / 1000, 2) AS prod_mw
+SELECT
+    toTimeZone(ts, 'Europe/Paris')                          AS heure,
+    round(sumIf(puissance_kw, grandeur = 'CONS') / 1000, 2) AS conso_mw,
+    round(sumIf(puissance_kw, grandeur = 'PROD') / 1000, 2) AS prod_mw
 FROM gold.courbe_epci
 WHERE code_epci IN (SELECT code_epci FROM ref.destinataire
                     WHERE positionCaseInsensitiveUTF8(nom, {collectivite:String}) > 0)
   AND ts >  toDateTime({jour:Date}, 'Europe/Paris')
   AND ts <= toDateTime({jour:Date} + 1, 'Europe/Paris')
-GROUP BY heure ORDER BY heure;
+GROUP BY heure
+ORDER BY heure
+```
+À observer : la pointe du soir vers 19h (21,9 MW pour Paris le 15), la bosse solaire à midi, très en dessous.
 
--- Tuile 2 · énergie par jour
-SELECT jour, round(conso_kwh / 1000, 1) AS conso_mwh, round(prod_kwh / 1000, 1) AS prod_mwh
-FROM gold.synthese_collectivite_jour
-WHERE positionCaseInsensitiveUTF8(collectivite, {collectivite:String}) > 0
-ORDER BY jour;
-
--- Tuile 3 · top 10 communes
-SELECT dictGet('ref.dict_commune', 'nom', code_insee) AS commune, round(sum(energie_kwh) / 1000, 1) AS conso_mwh
-FROM gold.energie_commune_jour
-WHERE code_epci IN (SELECT code_epci FROM ref.destinataire
-                    WHERE positionCaseInsensitiveUTF8(nom, {collectivite:String}) > 0)
-  AND grandeur = 'CONS'
-GROUP BY code_insee ORDER BY conso_mwh DESC LIMIT 10;
-
--- Tuile 5 · alertes du mois pour la collectivité (un jour précis est souvent vide)
-SELECT jour, commune, segment, kva_souscrit, round(pmax_va / 1000, 1) AS pmax_kva, depassement_pct
-FROM gold.alertes_pmax
-WHERE code_epci IN (SELECT code_epci FROM ref.destinataire
-                    WHERE positionCaseInsensitiveUTF8(nom, {collectivite:String}) > 0)
-ORDER BY jour DESC, depassement_pct DESC;
-
--- Tuile 6 · carte de chaleur
-SELECT toDate(ts - 1, 'Europe/Paris') AS jour, toHour(ts - 900, 'Europe/Paris') AS heure,
-       round(avg(puissance_kw) / 1000, 2) AS conso_mw
+#### Tuile 2 · Carte de chaleur du mois
+Type **Heatmap**. Axe X : `heure`. Axe Y : `jour`. Valeur : `conso_mw`.
+```sql
+SELECT
+    toDate(ts - 1, 'Europe/Paris')        AS jour,
+    toHour(ts - 900, 'Europe/Paris')      AS heure,
+    round(avg(puissance_kw) / 1000, 2)    AS conso_mw
 FROM gold.courbe_epci
 WHERE code_epci IN (SELECT code_epci FROM ref.destinataire
                     WHERE positionCaseInsensitiveUTF8(nom, {collectivite:String}) > 0)
   AND grandeur = 'CONS'
-GROUP BY jour, heure ORDER BY jour, heure;
+GROUP BY jour, heure
+ORDER BY jour, heure
 ```
+À observer : 31 lignes × 24 colonnes. La pointe du soir forme une bande chaque jour, les week-ends sont plus calmes en journée, et tout s'assombrit en fin de mois (le chauffage démarre). C'est la tuile la plus parlante du dashboard.
 
-`positionCaseInsensitiveUTF8(nom, 'Paris') > 0` est vrai si « Paris » apparaît dans le nom, quelle que soit la casse. Le nom complet (`Métropole du Grand Paris`) marche aussi. Les tuiles 4 (KPI) et 7 (poids des métropoles) restent globales : pas de paramètre.
+#### Tuile 3 · Énergie par jour
+Type **Stacked bar**. Axe X : `jour`. Séries Y : `conso_mwh`, `prod_mwh`.
+```sql
+SELECT
+    jour,
+    round(conso_kwh / 1000, 1) AS conso_mwh,
+    round(prod_kwh / 1000, 1)  AS prod_mwh
+FROM gold.synthese_collectivite_jour
+WHERE positionCaseInsensitiveUTF8(collectivite, {collectivite:String}) > 0
+ORDER BY jour
+```
+À observer : les creux des week-ends, et la tendance qui monte au fil d'octobre.
 
-**4.2 · Brancher les paramètres sur un filtre global**
-1. Rouvrez la tuile (⋮, puis Edit). Dans les réglages de la visualisation, chaque paramètre de la requête apparaît avec sa **source de valeur** (value source).
-2. Choisissez le type **filter** pour `collectivite` et pour `jour`.
-3. Faites de même sur chaque tuile filtrable.
+#### Tuile 4 · Top 10 des communes
+Type **Horizontal bar**. Catégorie : `commune`. Valeur : `conso_mwh`.
+```sql
+SELECT
+    dictGet('ref.dict_commune', 'nom', code_insee) AS commune,
+    round(sum(energie_kwh) / 1000, 1)              AS conso_mwh
+FROM gold.energie_commune_jour
+WHERE code_epci IN (SELECT code_epci FROM ref.destinataire
+                    WHERE positionCaseInsensitiveUTF8(nom, {collectivite:String}) > 0)
+  AND grandeur = 'CONS'
+GROUP BY code_insee
+ORDER BY conso_mwh DESC
+LIMIT 10
+```
+À observer : la ville centre en tête, puis des communes qui accueillent un site industriel (C2). Le nom vient d'un dictionnaire, sans JOIN.
+
+#### Tuile 5 · Alertes de dépassement de puissance
+Type **Table**. Toutes les colonnes.
+```sql
+SELECT
+    jour,
+    commune,
+    segment,
+    kva_souscrit,
+    round(pmax_va / 1000, 1) AS pmax_kva,
+    depassement_pct
+FROM gold.alertes_pmax
+WHERE code_epci IN (SELECT code_epci FROM ref.destinataire
+                    WHERE positionCaseInsensitiveUTF8(nom, {collectivite:String}) > 0)
+ORDER BY jour DESC, depassement_pct DESC
+```
+À observer : uniquement des sites C4 et C2 (en C5, le disjoncteur du compteur coupe avant tout dépassement). 140 alertes en octobre pour le Grand Paris, 33 pour Lyon.
+
+### Étape 3 · Brancher les filtres
+1. Rouvrez chaque tuile : **trois points** (⋮) en haut à droite, puis **Edit**.
+2. Dans les réglages de la visualisation, chaque paramètre de la requête (`collectivite`, `jour`) apparaît avec sa **source de valeur** (value source). Choisissez **filter**.
+3. Faites-le sur les 5 tuiles.
 4. Cliquez sur l'**entonnoir** dans la barre du haut : le panneau **Global filters** s'ouvre, avec un champ `collectivite` et un champ `jour`.
-5. Tapez `Paris` et `2026-10-15` : toutes les tuiles se recalculent. Puis `Lyon`, `Toulouse`, `Lille`…
 
-**4.3 · Bonus : choisir la collectivité en cliquant sur son nom**
-Plus simple encore pour un public non technique : une tuile liste les métropoles, on clique sur un nom.
-1. Ajoutez une tuile **Table** « Choisir une collectivité » avec cette requête :
-   ```sql
-   SELECT collectivite, round(sum(conso_kwh) / 1000) AS conso_mwh, round(100 * sum(prod_kwh) / sum(conso_kwh), 1) AS couverture_pct
-   FROM gold.synthese_collectivite_jour
-   GROUP BY collectivite
-   ORDER BY conso_mwh DESC;
-   ```
-2. Dans les réglages des autres tuiles, changez la **value source** du paramètre `collectivite` : au lieu de « filter », choisissez **cette table** et sa colonne `collectivite`.
-3. Cliquez sur « Toulouse Métropole » dans la table : courbe, énergie, communes, alertes et heatmap basculent sur Toulouse.
+### Étape 4 · Jouer avec le dashboard
+1. Dans **Global filters**, tapez `Paris` et `2026-10-15` : les 5 tuiles affichent le Grand Paris.
+2. Remplacez par `Lyon`, puis `Toulouse` : tout le dashboard bascule.
+3. Changez la date (`2026-10-25`, le jour du changement d'heure : 50 demi-heures) : seule la courbe de la tuile 1 change.
 
-À observer : chaque changement de filtre relance les requêtes, et chacune répond en quelques millisecondes car elle finit par filtrer gold sur le début de sa clé de tri (`code_epci`).
+Chaque changement relance les 5 requêtes. Chacune répond en quelques millisecondes : derrière le nom tapé, elle retrouve le code du territoire dans `ref.destinataire`, puis filtre gold sur le début de sa clé de tri (`code_epci`).
 
-Partage : un collègue doit avoir accès aux **requêtes enregistrées** sous-jacentes, pas seulement au dashboard (bouton **Share** en haut).
+Partage : bouton **Share** en haut. Un collègue doit aussi avoir accès aux **requêtes enregistrées** sous-jacentes.
 
-Mesuré sur le service de test (3 × 64 Go) : chaque tuile répond en 2 à 30 ms et lit entre 31 et 16 384 lignes.
+Mesuré sur le service de test (3 × 64 Go), filtre `Paris` : 6 à 28 ms par tuile.
 
 ---
 
@@ -161,7 +156,7 @@ Le portail n'envoie que des paramètres. Le SQL reste dans ClickHouse, versionn�
 - Un rôle **Admin** dans la console pour configurer l'endpoint.
 
 ### Créer l'endpoint
-1. Nouvel onglet, collez (sans les `--`) la requête de l'étape 3 de `02_vue_parametree_api.sql` :
+1. Nouvel onglet, collez (sans les `--`) la requête de l'étape 3 de `01_vue_parametree_api.sql` :
    ```sql
    SELECT *
    FROM gold.api_courbe_collectivite(
@@ -195,7 +190,7 @@ Mesuré (même requête, client natif) : 3 à 30 ms, ~8 200 lignes lues pour une
 ## 3. ClickHouse Agents (15 min)
 
 ### Préparer le terrain
-`03_questions_agent.sql`, étape 1, pose des `COMMENT` sur les tables et colonnes gold. C'est la première chose que lit un agent (règle `agent-discovery-schema`). Sans eux, il devine que `ts` est en heure locale, que `488903` est un code postal…
+`02_questions_agent.sql`, étape 1, pose des `COMMENT` sur les tables et colonnes gold. C'est la première chose que lit un agent (règle `agent-discovery-schema`). Sans eux, il devine que `ts` est en heure locale, que `488903` est un code postal…
 
 ### Créer et configurer l'agent
 1. Barre latérale du service : **ClickHouse agents**, puis **Launch ClickHouse agents**.
@@ -210,7 +205,7 @@ Mesuré (même requête, client natif) : 3 à 30 ms, ~8 200 lignes lues pour une
 | Instructions | onglet **Inline**, collez le texte ci-dessous |
 | **Tools** | **+ Add**, puis ajoutez les trois : **ClickHouse** (connecté à votre service, 9 outils : lister les tables, exécuter du SQL…), **Artifacts** (pour construire les dashboards), **Run Code** (calculs et graphiques en Python) |
 | Skills | **All** |
-| Conversation starters | ajoutez les demandes D1, D2 et D3 de l'étape 3 de `03_questions_agent.sql` : elles apparaîtront comme boutons au démarrage d'une conversation |
+| Conversation starters | ajoutez les demandes D1, D2 et D3 de l'étape 3 de `02_questions_agent.sql` : elles apparaîtront comme boutons au démarrage d'une conversation |
 | File context, Support contact | facultatifs |
 
 Sans l'outil **ClickHouse**, l'agent ne voit pas vos données. Sans **Artifacts**, il répond en texte mais ne construit pas de dashboard.
@@ -234,7 +229,7 @@ en français à des questions métier sur la collecte des données de comptage d
 3. Enregistrez, ouvrez une conversation, choisissez l'agent (**Select**).
 
 ### Poser les 10 questions
-Les questions sont dans `03_questions_agent.sql` (étape 2), chacune avec la requête attendue et le résultat attendu (commentaire `Résultat attendu`). Posez-les telles quelles, puis comparez.
+Les questions sont dans `02_questions_agent.sql` (étape 2), chacune avec la requête attendue et le résultat attendu (commentaire `Résultat attendu`). Posez-les telles quelles, puis comparez.
 
 Ce qui distingue une bonne réponse :
 - les bons chiffres (le résultat de la requête attendue) ;
@@ -242,7 +237,7 @@ Ce qui distingue une bonne réponse :
 - les pièges évités : l'heure UTC (Q3), l'identifiant de collectivité à chercher (Q2), le total de compteurs à additionner sur les segments (Q4).
 
 ### Lui faire construire des dashboards (le moment fort)
-L'étape 3 de `03_questions_agent.sql` contient 6 demandes (D1 à D6) : dashboard complet du Grand Paris, carte de chaleur, comparaison des 6 métropoles, rapport d'exploitation, sites qui dépassent, page pour un élu. L'agent interroge gold, puis construit la page en quelques dizaines de secondes.
+L'étape 3 de `02_questions_agent.sql` contient 6 demandes (D1 à D6) : dashboard complet du Grand Paris, carte de chaleur, comparaison des 6 métropoles, rapport d'exploitation, sites qui dépassent, page pour un élu. L'agent interroge gold, puis construit la page en quelques dizaines de secondes.
 
 Pour chaque demande :
 1. Collez-la dans la conversation (ou cliquez le conversation starter).
@@ -253,4 +248,4 @@ Pour chaque demande :
 Commencez par **D2** (la carte de chaleur) puis **D1** (le dashboard complet) : ce sont les plus visuels.
 
 ### En production
-Créez un rôle dédié à l'agent : lecture seule, gold uniquement, avec un profil de réglages qui borne chaque requête (exemple commenté à l'étape 4 de `03_questions_agent.sql`). Pendant le workshop, l'agent tourne avec vos droits.
+Créez un rôle dédié à l'agent : lecture seule, gold uniquement, avec un profil de réglages qui borne chaque requête (exemple commenté à l'étape 4 de `02_questions_agent.sql`). Pendant le workshop, l'agent tourne avec vos droits.

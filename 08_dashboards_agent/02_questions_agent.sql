@@ -204,7 +204,7 @@ LIMIT 20;
 --       le top 10 des communes, le KPI de complétude à 9h et les alertes du dernier jour.
 --       Ajoute 3 chiffres clés en haut de page."
 --  Résultat attendu : 5 graphiques et 3 chiffres clés (~10 846 MWh, ~4,1 % de couverture,
---  98,4 % de KPI moyen). Ce sont les requêtes des tuiles de 01_tuiles_dashboard.sql.
+--  98,4 % de KPI moyen). Pour l'essentiel, ce sont les requêtes des tuiles du README de ce dossier.
 SELECT round(sum(conso_kwh) / 1000) AS conso_mwh, round(100 * sum(prod_kwh) / sum(conso_kwh), 1) AS couverture_pct
 FROM gold.synthese_collectivite_jour
 WHERE id_destinataire = '488903';
@@ -291,7 +291,7 @@ ORDER BY type_jour, heure;
 --    GRANT dictGet ON ref.* TO role_agent;
 
 
--- CHECKPOINT MODULE 8 (3/3)
+-- CHECKPOINT MODULE 8 (2/2)
 --  Au moins 5 tables et 20 colonnes documentées.
 SELECT
     if((SELECT count() FROM system.tables WHERE database = 'gold' AND comment != '') >= 5, 'OK', 'KO') AS tables_documentees,
