@@ -71,8 +71,8 @@ SETTINGS max_block_size = 2;
 
 SELECT count() AS points_apres FROM silver.courbe_charge WHERE jour = '2026-10-31';
 -- Mesuré : 65 ms · 25 M lignes lues (47,8 Mo)
--- À observer : le nombre de points du 31 passe de 0 à ~1 million, sans aucun job.
--- C'est exactement ce que fera ClickPipes : il insère en bronze, les MV propagent.
+-- À observer : le nombre de points du 31 passe de 0 à ~1 million.
+-- Quelle que soit la source de l'INSERT en bronze, les vues matérialisées propagent.
 
 
 -- ÉTAPE 3 · Ce que la compression fait aux courbes

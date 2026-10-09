@@ -23,7 +23,7 @@ FROM silver.courbe_charge_xl
 WHERE grandeur = 'CONS' AND id_prm = sim_id_prm(123456)   -- les 2 premières colonnes de l'ORDER BY
 ORDER BY ts;
 -- Mesuré : 16 384 lignes lues (272 Ko) · 250 à 265 ms au premier appel sur une réplique
--- (lecture sur S3), puis 5 à 55 ms : le cache disque local de la réplique a pris le relais
+-- (lecture sur le stockage objet), puis 5 à 55 ms : le cache disque local de la réplique a pris le relais
 
 --  EXPLAIN indexes = 1 montre ce que l'index a éliminé, sans exécuter la requête.
 EXPLAIN indexes = 1
@@ -50,7 +50,7 @@ LIMIT 10;
 --  Par défaut, une requête s'exécute sur la réplique qui la reçoit. Avec
 --  enable_parallel_replicas = 1, la table est découpée en morceaux et chaque
 --  réplique en traite une partie. C'est la séparation stockage/calcul :
---  toutes les répliques lisent les mêmes données sur S3, il suffit d'ajouter
+--  toutes les répliques lisent les mêmes données sur le stockage objet, il suffit d'ajouter
 --  du calcul pour aller plus vite.
 SELECT
     dictGet('ref.dict_commune', 'code_dept', dictGet('ref.dict_prm', 'code_insee', id_prm)) AS dept,

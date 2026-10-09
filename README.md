@@ -25,7 +25,6 @@ flowchart LR
     subgraph SRC["Sources"]
         direction TB
         SIM["Simulateur SQL<br/>UDF + 3 vues paramétrées<br/>qui fabriquent les fichiers"]
-        CP["En production<br/>ClickPipes depuis un bucket S3"]
         GEO["geo.api.gouv.fr<br/>lu avec url()"]
         REF["ref.*<br/>communes, PRM, kVA"]
         DICT["5 dictionnaires<br/>dictGet en silver et gold"]
@@ -60,7 +59,6 @@ flowchart LR
     end
 
     SIM -- INSERT --> RAW
-    CP -.-> RAW
     GEO --> REF --> DICT
     RAW -- MV --> CC
     RAW -- MV --> REJ
@@ -84,7 +82,7 @@ flowchart LR
 
 | Couche | Objets | Ce qu'il faut retenir |
 |---|---|---|
-| **Sources** | simulateur SQL (fonctions `sim_*`, 3 vues paramétrées), `geo.api.gouv.fr`, référentiels `ref.*`, 5 dictionnaires | tout est généré en SQL ; en production, ClickPipes lit les fichiers dans un bucket S3 |
+| **Sources** | simulateur SQL (fonctions `sim_*`, 3 vues paramétrées), `geo.api.gouv.fr`, référentiels `ref.*`, 5 dictionnaires | tout est généré en SQL, de façon déterministe |
 | **Bronze** | `bronze.flux_raw` | 1 ligne = 1 fichier JSON brut (CDC, ENERGIE, PMAX), compressé ×15, purgé après 90 jours |
 | **Silver** | `courbe_charge`, `rejets`, `pmax_jour`, `energie_jour` | 4 vues matérialisées déplient le JSON à chaque INSERT ; ReplacingMergeTree garde la dernière version |
 | **Gold** | `collecte_prm_jour`, `kpi_completude_jour`, `courbe_epci`, `energie_commune_jour`, `synthese_collectivite_jour`, `alertes_pmax`, `v_reconciliation` | 1 vue matérialisée temps réel, 5 vues rafraîchissables (10 min ou 9h), 1 vue simple |

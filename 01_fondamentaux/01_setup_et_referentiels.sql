@@ -32,7 +32,7 @@ GRANT SELECT ON simulateur.* TO dict_reader;
 -- ÉTAPE 3 · Les communes françaises, lues EN DIRECT depuis l'API officielle
 --  url() lit une ressource HTTP comme une table. Le format JSONEachRow dit
 --  à ClickHouse comment découper la réponse : un objet JSON = une ligne.
---  Pas d'ETL, pas de script Python : la base va chercher la donnée elle-même.
+--  La base lit la ressource elle-même, dans la requête.
 SELECT *
 FROM url('https://geo.api.gouv.fr/communes?fields=code,nom,codeDepartement,codeRegion,codeEpci,population&format=json', JSONEachRow)
 LIMIT 5;
