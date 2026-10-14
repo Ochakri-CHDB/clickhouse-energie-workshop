@@ -11,6 +11,9 @@ DROP DATABASE IF EXISTS gold SYNC;
 DROP DATABASE IF EXISTS silver SYNC;
 DROP DATABASE IF EXISTS bronze SYNC;
 DROP DATABASE IF EXISTS simulateur SYNC;
+-- Versions anglaise et espagnole du workshop, si elles ont tourné sur ce service
+DROP DATABASE IF EXISTS simulator SYNC;
+DROP DATABASE IF EXISTS simulador SYNC;
 DROP DATABASE IF EXISTS ref SYNC;
 DROP USER IF EXISTS dict_reader;
 DROP FUNCTION IF EXISTS sim_id_prm;
