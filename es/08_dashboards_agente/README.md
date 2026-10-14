@@ -27,7 +27,7 @@ Duración: 1 h. Todo se hace en la consola Cloud, siguiendo los pasos de abajo: 
 | 5 | Alertas de exceso de potencia | Table | entidad local |
 
 Los filtros aceptan valores legibles:
-- **entidad**: un trozo del nombre, sin preocuparte por las mayúsculas. `Paris`, `Lyon`, `Lille`, `Toulouse`, `Bordeaux` o `Nantes`.
+- **entidad**: un trozo del nombre, sin preocuparte por las mayúsculas. `Madrid`, `Barcelona`, `Valencia`, `Sevilla`, `Bilbao` o `Málaga`.
 - **dia**: una fecha de octubre de 2026 en formato AAAA-MM-DD, por ejemplo `2026-10-15`.
 
 Como las 5 tarjetas usan los **mismos nombres de parámetros**, un solo filtro controla todo el dashboard.
@@ -41,7 +41,7 @@ Como las 5 tarjetas usan los **mismos nombres de parámetros**, un solo filtro c
 1. Arriba a la derecha, haz clic en **+ New visualization**. Aparece una tarjeta vacía y se abre el panel **Edit element** a la derecha.
 2. Pestaña **General**, campo **Query**: elige **New query**. Se abre el **Inline Editor**.
 3. Pega la consulta de la tarjeta (fichas más abajo).
-4. A la derecha del editor, el panel **Query Parameters** muestra los parámetros detectados. Introduce los valores de prueba: `entidad` = `Paris` y, para la tarjeta 1, `dia` = `2026-10-15`.
+4. A la derecha del editor, el panel **Query Parameters** muestra los parámetros detectados. Introduce los valores de prueba: `entidad` = `Madrid` y, para la tarjeta 1, `dia` = `2026-10-15`.
 5. Ejecuta con el botón ▷, comprueba el resultado y guarda con el icono del **disquete**, con el nombre de la tarjeta.
 6. **Visualization type**: elige el tipo indicado en la ficha.
 7. Pestaña **Data**: asocia las columnas a los ejes como se indica en la ficha.
@@ -53,28 +53,28 @@ Como las 5 tarjetas usan los **mismos nombres de parámetros**, un solo filtro c
 Tipo **Line**. Eje X: `hora`. Series Y: `consumo_mw`, `prod_mw`.
 ```sql
 SELECT
-    toTimeZone(ts, 'Europe/Paris')                          AS hora,
+    toTimeZone(ts, 'Europe/Madrid')                          AS hora,
     round(sumIf(potencia_kw, magnitud = 'CONS') / 1000, 2) AS consumo_mw,
     round(sumIf(potencia_kw, magnitud = 'PROD') / 1000, 2) AS prod_mw
-FROM gold.curva_epci
-WHERE codigo_epci IN (SELECT codigo_epci FROM ref.destinatario
+FROM gold.curva_area
+WHERE codigo_area IN (SELECT codigo_area FROM ref.destinatario
                     WHERE positionCaseInsensitiveUTF8(nombre, {entidad:String}) > 0)
-  AND ts >  toDateTime({dia:Date}, 'Europe/Paris')
-  AND ts <= toDateTime({dia:Date} + 1, 'Europe/Paris')
+  AND ts >  toDateTime({dia:Date}, 'Europe/Madrid')
+  AND ts <= toDateTime({dia:Date} + 1, 'Europe/Madrid')
 GROUP BY hora
 ORDER BY hora
 ```
-Qué observar: la punta de la tarde hacia las 19h (21,9 MW para Paris el día 15) y la joroba solar a mediodía, muy por debajo.
+Qué observar: la punta de la tarde hacia las 19h (21,9 MW para Madrid el día 15) y la joroba solar a mediodía, muy por debajo.
 
 #### Tarjeta 2 · Mapa de calor del mes
 Tipo **Heatmap**. Eje X: `hora`. Eje Y: `dia`. Valor: `consumo_mw`.
 ```sql
 SELECT
-    toDate(ts - 1, 'Europe/Paris')        AS dia,
-    toHour(ts - 900, 'Europe/Paris')      AS hora,
+    toDate(ts - 1, 'Europe/Madrid')        AS dia,
+    toHour(ts - 900, 'Europe/Madrid')      AS hora,
     round(avg(potencia_kw) / 1000, 2)    AS consumo_mw
-FROM gold.curva_epci
-WHERE codigo_epci IN (SELECT codigo_epci FROM ref.destinatario
+FROM gold.curva_area
+WHERE codigo_area IN (SELECT codigo_area FROM ref.destinatario
                     WHERE positionCaseInsensitiveUTF8(nombre, {entidad:String}) > 0)
   AND magnitud = 'CONS'
 GROUP BY dia, hora
@@ -99,17 +99,17 @@ Qué observar: los valles de los fines de semana y la tendencia que sube a lo la
 Tipo **Horizontal bar**. Categoría: `municipio`. Valor: `consumo_mwh`.
 ```sql
 SELECT
-    dictGet('ref.dict_municipio', 'nombre', codigo_insee) AS municipio,
+    dictGet('ref.dict_municipio', 'nombre', codigo_ine) AS municipio,
     round(sum(energia_kwh) / 1000, 1)              AS consumo_mwh
 FROM gold.energia_municipio_dia
-WHERE codigo_epci IN (SELECT codigo_epci FROM ref.destinatario
+WHERE codigo_area IN (SELECT codigo_area FROM ref.destinatario
                     WHERE positionCaseInsensitiveUTF8(nombre, {entidad:String}) > 0)
   AND magnitud = 'CONS'
-GROUP BY codigo_insee
+GROUP BY codigo_ine
 ORDER BY consumo_mwh DESC
 LIMIT 10
 ```
-Qué observar: la ciudad central en cabeza y después municipios que albergan un emplazamiento industrial (C2). El nombre sale de un diccionario, sin JOIN.
+Qué observar: la ciudad central en cabeza (Madrid, ~5 600 MWh) y después municipios que albergan un emplazamiento industrial (C2), como Leganés, Alcobendas o Rivas-Vaciamadrid. El nombre sale de un diccionario, sin JOIN.
 
 #### Tarjeta 5 · Alertas de exceso de potencia
 Tipo **Table**. Todas las columnas.
@@ -122,11 +122,11 @@ SELECT
     round(pmax_va / 1000, 1) AS pmax_kva,
     exceso_pct
 FROM gold.alertas_pmax
-WHERE codigo_epci IN (SELECT codigo_epci FROM ref.destinatario
+WHERE codigo_area IN (SELECT codigo_area FROM ref.destinatario
                     WHERE positionCaseInsensitiveUTF8(nombre, {entidad:String}) > 0)
 ORDER BY dia DESC, exceso_pct DESC
 ```
-Qué observar: solo emplazamientos C4 y C2 (en C5, el limitador del contador corta antes de cualquier exceso). 140 alertas en octubre para el Grand Paris, 33 para Lyon.
+Qué observar: solo emplazamientos C4 y C2 (en C5, el limitador del contador corta antes de cualquier exceso). 140 alertas en octubre para el Área Urbana de Madrid, 33 para la de Barcelona.
 
 ### Paso 3 · Conectar los filtros
 1. Vuelve a abrir cada tarjeta: **tres puntos** (⋮) arriba a la derecha y después **Edit**.
@@ -135,15 +135,15 @@ Qué observar: solo emplazamientos C4 y C2 (en C5, el limitador del contador cor
 4. Haz clic en el **embudo** de la barra superior: se abre el panel **Global filters**, con un campo `entidad` y un campo `dia`.
 
 ### Paso 4 · Jugar con el dashboard
-1. En **Global filters**, escribe `Paris` y `2026-10-15`: las 5 tarjetas muestran el Grand Paris.
-2. Cámbialo por `Lyon` y luego por `Toulouse`: todo el dashboard cambia.
+1. En **Global filters**, escribe `Madrid` y `2026-10-15`: las 5 tarjetas muestran el Área Urbana de Madrid.
+2. Cámbialo por `Barcelona` y luego por `Sevilla`: todo el dashboard cambia.
 3. Cambia la fecha (`2026-10-25`, el día del cambio de hora: 50 medias horas): solo cambia la curva de la tarjeta 1.
 
-Cada cambio relanza las 5 consultas. Cada una responde en unos milisegundos: a partir del nombre escrito, encuentra el código del territorio en `ref.destinatario` y luego filtra gold por el principio de su clave de ordenación (`codigo_epci`).
+Cada cambio relanza las 5 consultas. Cada una responde en unos milisegundos: a partir del nombre escrito, encuentra el código del territorio en `ref.destinatario` y luego filtra gold por el principio de su clave de ordenación (`codigo_area`).
 
 Compartir: botón **Share** arriba. Un compañero también necesita acceso a las **consultas guardadas** que hay detrás.
 
-Medido en el servicio de prueba (3 × 64 GB), filtro `Paris`: de 6 a 28 ms por tarjeta.
+Medido en el servicio de prueba (3 × 64 GB), filtro `Madrid`: de 6 a 28 ms por tarjeta.
 
 ---
 
@@ -163,14 +163,14 @@ En la consola SQL, pega este bloque y ejecútalo entero (Cmd+Enter):
 -- La curva de carga de una entidad local, entre dos fechas
 CREATE OR REPLACE VIEW gold.api_curva_entidad AS
 SELECT
-    toTimeZone(ts, 'Europe/Paris')   AS hora,
+    toTimeZone(ts, 'Europe/Madrid')   AS hora,
     magnitud,
     round(potencia_kw, 1)           AS potencia_kw,
     n_contadores
-FROM gold.curva_epci
-WHERE codigo_epci IN (SELECT codigo_epci FROM ref.destinatario WHERE id_destinatario = {id_destinatario:String})
-  AND ts >  toDateTime({inicio:Date}, 'Europe/Paris')
-  AND ts <= toDateTime({fin:Date} + 1, 'Europe/Paris')
+FROM gold.curva_area
+WHERE codigo_area IN (SELECT codigo_area FROM ref.destinatario WHERE id_destinatario = {id_destinatario:String})
+  AND ts >  toDateTime({inicio:Date}, 'Europe/Madrid')
+  AND ts <= toDateTime({fin:Date} + 1, 'Europe/Madrid')
 ORDER BY magnitud, ts;
 
 -- El resumen día a día de una entidad local
@@ -188,7 +188,7 @@ WHERE id_destinatario = {id_destinatario:String}
 ORDER BY dia;
 
 -- El rol del módulo 7 tiene que poder leer el pequeño referencial que usa la vista
-GRANT SELECT ON ref.destinatario TO role_grand_paris;
+GRANT SELECT ON ref.destinatario TO role_madrid;
 ```
 Si la consola abre un panel **Query Variables**, déjalo vacío: los parámetros solo sirven para llamar a la vista.
 
@@ -207,12 +207,12 @@ SELECT id_destinatario, nombre FROM ref.destinatario ORDER BY id_destinatario;
 ```
 | id_destinatario | nombre |
 |---|---|
-| 488903 | Métropole du Grand Paris |
-| 488904 | Métropole de Lyon |
-| 488905 | Métropole Européenne de Lille |
-| 488906 | Toulouse Métropole |
-| 488907 | Bordeaux Métropole |
-| 488908 | Nantes Métropole |
+| 488903 | Área Urbana de Madrid |
+| 488904 | Área Urbana de Barcelona |
+| 488905 | Área Urbana de Valencia |
+| 488906 | Área Urbana de Sevilla |
+| 488907 | Área Urbana de Bilbao |
+| 488908 | Área Urbana de Málaga |
 
 Las fechas disponibles:
 ```sql
@@ -243,7 +243,7 @@ Resultado esperado: del `2026-10-01` al `2026-10-31`.
 1. Vuelve a abrir la consulta guardada `api_curva_entidad`.
 2. Haz clic en **Share** y luego en **API Endpoint**.
 3. Elige la clave API del paso 4.
-4. Elige el **rol de base de datos** que ejecutará la consulta: **Read only**, o el rol `role_grand_paris` del módulo 7 para que el endpoint solo vea el Grand Paris.
+4. Elige el **rol de base de datos** que ejecutará la consulta: **Read only**, o el rol `role_madrid` del módulo 7 para que el endpoint solo vea el Área Urbana de Madrid.
 5. **CORS**: el dominio del portal (déjalo vacío para una prueba desde la línea de comandos).
 6. Confirma. La consola muestra la **dirección de llamada**, con la forma `https://queries.clickhouse.cloud/run/<identificador>`. Cópiala.
 
@@ -270,9 +270,9 @@ Resultados obtenidos en un endpoint real:
 
 | Llamada | Resultado |
 |---|---|
-| GET o POST, Grand Paris (`488903`), el 15 de octubre | HTTP 200, **96 filas** (48 medias horas × CONS y PROD), ~1 s |
-| GET, Grand Paris, del 13 al 19 de octubre | HTTP 200, **672 filas** (7 días × 96) |
-| GET o POST, Lyon (`488904`), endpoint creado con el rol `role_grand_paris` | HTTP 200, **0 filas**: la row policy oculta todo lo que no sea el Grand Paris |
+| GET o POST, Madrid (`488903`), el 15 de octubre | HTTP 200, **96 filas** (48 medias horas × CONS y PROD), ~1 s |
+| GET, Madrid, del 13 al 19 de octubre | HTTP 200, **672 filas** (7 días × 96) |
+| GET o POST, Barcelona (`488904`), endpoint creado con el rol `role_madrid` | HTTP 200, **0 filas**: la row policy oculta todo lo que no sea el Área Urbana de Madrid |
 
 Trampas encontradas:
 - **`401 Unauthorized`** (y `Key is not found` en la API de Cloud): la clave está mal copiada. El Key secret empieza por `4b1d`: comprueba que ese principio no se ha perdido al copiar y pegar. Para probar solo la clave: `curl --user "$KEY_ID:$KEY_SECRET" https://api.clickhouse.cloud/v1/organizations` debe devolver tu organización.
@@ -315,24 +315,24 @@ En la consola SQL, pega este bloque y ejecútalo entero (Cmd+Enter):
 ALTER TABLE gold.resumen_entidad_dia
     MODIFY COMMENT 'Resumen diario por entidad local destinataria de los flujos de medida (6 metrópolis). Una fila por entidad local y por día de octubre de 2026. Energías en kWh.';
 ALTER TABLE gold.resumen_entidad_dia
-    COMMENT COLUMN id_destinatario 'Identificador del destinatario (488903 = Métropole du Grand Paris, ver ref.destinatario)',
-    COMMENT COLUMN dia            'Día local (Europe/Paris)',
+    COMMENT COLUMN id_destinatario 'Identificador del destinatario (488903 = Área Urbana de Madrid, ver ref.destinatario)',
+    COMMENT COLUMN dia            'Día local (Europe/Madrid)',
     COMMENT COLUMN consumo_kwh       'Energía consumida en el territorio ese día, en kWh',
     COMMENT COLUMN prod_kwh        'Energía producida (fotovoltaica) en el territorio ese día, en kWh',
     COMMENT COLUMN tasa_cobertura 'prod_kwh / consumo_kwh, entre 0 y 1',
     COMMENT COLUMN n_contadores          'Número de contadores que han enviado una curva ese día';
 
-ALTER TABLE gold.curva_epci
-    MODIFY COMMENT 'Curva de carga agregada por EPCI, paso de 30 min. ts = FIN del intervalo, en UTC: convertir con toTimeZone(ts, ''Europe/Paris''). Filtrar por codigo_epci y después por ts (clave de ordenación).';
-ALTER TABLE gold.curva_epci
-    COMMENT COLUMN codigo_epci    'Código SIREN del EPCI (200054781 = Métropole du Grand Paris). Nombre: dictGet(''ref.dict_epci'', ''nombre'', codigo_epci)',
+ALTER TABLE gold.curva_area
+    MODIFY COMMENT 'Curva de carga agregada por Gran Área Urbana, paso de 30 min. ts = FIN del intervalo, en UTC: convertir con toTimeZone(ts, ''Europe/Madrid''). Filtrar por codigo_area y después por ts (clave de ordenación).';
+ALTER TABLE gold.curva_area
+    COMMENT COLUMN codigo_area    'Código de la Gran Área Urbana del Ministerio de Transportes (001 = Área Urbana de Madrid, 002 = Barcelona). Los municipios fuera de un área tienen un código vacío. Nombre: dictGet(''ref.dict_area'', ''nombre'', codigo_area)',
     COMMENT COLUMN magnitud     'CONS = consumo, PROD = producción',
     COMMENT COLUMN ts           'Fin del intervalo de 30 min, UTC',
     COMMENT COLUMN potencia_kw 'Potencia media en el intervalo, suma de los contadores, en kW',
     COMMENT COLUMN n_contadores       'Número de puntos (contadores) agregados';
 
 ALTER TABLE gold.energia_municipio_dia
-    MODIFY COMMENT 'Energía por municipio, día, segmento (C5, C4, C2) y magnitud (CONS, PROD). Nombre del municipio: dictGet(''ref.dict_municipio'', ''nombre'', codigo_insee).';
+    MODIFY COMMENT 'Energía por municipio, día, segmento (C5, C4, C2) y magnitud (CONS, PROD). Nombre del municipio: dictGet(''ref.dict_municipio'', ''nombre'', codigo_ine).';
 ALTER TABLE gold.energia_municipio_dia
     COMMENT COLUMN segmento     'C5 = particulares y pequeños profesionales (≤ 36 kVA), C4 = pymes/terciario (36 a 250 kVA), C2 = industriales en media tensión',
     COMMENT COLUMN energia_kwh 'Energía del día en kWh',
@@ -344,7 +344,7 @@ ALTER TABLE gold.alertas_pmax
     COMMENT COLUMN kva_contratado    'Potencia contratada VIGENTE ese día, en kVA',
     COMMENT COLUMN pmax_va         'Potencia máxima alcanzada en el día, en VA',
     COMMENT COLUMN exceso_pct 'Exceso en % de la potencia contratada',
-    COMMENT COLUMN instante_punta    'Instante de la punta, hora de París';
+    COMMENT COLUMN instante_punta    'Instante de la punta, hora de Madrid';
 
 ALTER TABLE gold.kpi_completitud_dia
     MODIFY COMMENT 'Completitud de la recogida de las curvas CURVA a las 9h del día siguiente. Objetivo: datos_9h_pct >= 99.';
@@ -357,7 +357,7 @@ Comprueba:
 ```sql
 SELECT name, comment FROM system.tables WHERE database = 'gold' AND comment != '' ORDER BY name;
 ```
-Resultado esperado: 6 tablas comentadas (`alertas_pmax`, `curva_epci`, `energia_municipio_dia`, `kpi_completitud_dia`, `perfil_contador`, `resumen_entidad_dia`). `perfil_contador` ya lleva comentarios desde que se crea en el módulo 05.
+Resultado esperado: 6 tablas comentadas (`alertas_pmax`, `curva_area`, `energia_municipio_dia`, `kpi_completitud_dia`, `perfil_contador`, `resumen_entidad_dia`). `perfil_contador` ya lleva comentarios desde que se crea en el módulo 05.
 
 ### Paso 2 · Crear y configurar el agente [consola]
 1. En la barra lateral del servicio, haz clic en **ClickHouse agents** y luego en **Launch ClickHouse agents**.
@@ -384,9 +384,9 @@ a preguntas de negocio sobre la recogida de datos de medida de octubre de 2026.
 - Usa ÚNICAMENTE las tablas de la base gold y ref.destinatario, a través de la herramienta ClickHouse.
   Lee primero los comentarios de las tablas y de las columnas, y su clave de ordenación.
 - Filtra siempre por el principio de la clave de ordenación y añade un LIMIT.
-- ts está en UTC y marca el FINAL de una media hora: convierte con toTimeZone(ts, 'Europe/Paris').
-- Los nombres de municipios y de EPCI se leen con dictGet('ref.dict_municipio', 'nombre', codigo_insee)
-  y dictGet('ref.dict_epci', 'nombre', codigo_epci).
+- ts está en UTC y marca el FINAL de una media hora: convierte con toTimeZone(ts, 'Europe/Madrid').
+- Los nombres de municipios y de áreas urbanas se leen con dictGet('ref.dict_municipio', 'nombre', codigo_ine)
+  y dictGet('ref.dict_area', 'nombre', codigo_area).
 - Cuando te pidan un dashboard, una página o un informe: consulta primero ClickHouse
   y después construye un artifact interactivo con los valores REALES obtenidos (nunca datos
   inventados), títulos en español, las unidades (MW, MWh, %) y 2 o 3 frases de análisis.
@@ -403,11 +403,11 @@ Data science con la herramienta Run Code:
 - Curva de un territorio: una fila por día, con las 48 medias horas en un array:
   SELECT dia, toDayOfWeek(dia) >= 6 AS es_finde,
          arrayMap(x -> x.2, arraySort(groupArray((media_hora, mw)))) AS consumo_mw
-  FROM (SELECT toDate(ts - 1800, 'Europe/Paris') AS dia,
-               toHour(ts - 1800, 'Europe/Paris') * 2 + intDiv(toMinute(ts - 1800, 'Europe/Paris'), 30) AS media_hora,
+  FROM (SELECT toDate(ts - 1800, 'Europe/Madrid') AS dia,
+               toHour(ts - 1800, 'Europe/Madrid') * 2 + intDiv(toMinute(ts - 1800, 'Europe/Madrid'), 30) AS media_hora,
                round(avg(potencia_kw) / 1000, 2) AS mw
-        FROM gold.curva_epci
-        WHERE codigo_epci = '<código EPCI>' AND magnitud = 'CONS'
+        FROM gold.curva_area
+        WHERE codigo_area = '<código del área, 001 = Madrid>' AND magnitud = 'CONS'
         GROUP BY dia, media_hora)
   GROUP BY dia ORDER BY dia
 - Formas de los contadores (30 por segmento C5, C4, C2):
@@ -438,9 +438,9 @@ Con dos preguntas basta para ver cómo trabaja el agente: lee los comentarios, e
 
 Copia cada pregunta tal cual en la conversación y compara la respuesta con el resultado esperado. La consulta de verificación (despliégala) da la cifra real.
 
-**Q1** · "¿Cuánto consumió la Métropole du Grand Paris en octubre y qué parte cubrió la producción solar local?"
+**Q1** · "¿Cuánto consumió el Área Urbana de Madrid en octubre y qué parte cubrió la producción solar local?"
 
-Resultado esperado: ~10 850 MWh consumidos, ~450 MWh producidos, cobertura de ~4,1 %.
+Resultado esperado: ~10 846 MWh consumidos, ~445 MWh producidos, cobertura de ~4,1 %.
 
 <details><summary>Consulta de verificación</summary>
 
@@ -453,17 +453,17 @@ WHERE id_destinatario = '488903';
 ```
 </details>
 
-**Q2** · "¿A qué hora fue la punta de consumo del Grand Paris el 15 de octubre, y de cuántos MW?"
+**Q2** · "¿A qué hora fue la punta de consumo del Área Urbana de Madrid el 15 de octubre, y de cuántos MW?"
 
-Resultado esperado: 19h00 (hora de París), ~21,9 MW. Trampa: ts está en UTC y marca el FINAL de la media hora.
+Resultado esperado: 19h00 (hora de Madrid), ~21,9 MW. Trampa: ts está en UTC y marca el FINAL de la media hora.
 
 <details><summary>Consulta de verificación</summary>
 
 ```sql
-SELECT toTimeZone(ts, 'Europe/Paris') AS hora, round(potencia_kw / 1000, 2) AS mw
-FROM gold.curva_epci
-WHERE codigo_epci = '200054781' AND magnitud = 'CONS'
-  AND ts > toDateTime('2026-10-15', 'Europe/Paris') AND ts <= toDateTime('2026-10-16', 'Europe/Paris')
+SELECT toTimeZone(ts, 'Europe/Madrid') AS hora, round(potencia_kw / 1000, 2) AS mw
+FROM gold.curva_area
+WHERE codigo_area = '001' AND magnitud = 'CONS'
+  AND ts > toDateTime('2026-10-15', 'Europe/Madrid') AND ts <= toDateTime('2026-10-16', 'Europe/Madrid')
 ORDER BY potencia_kw DESC
 LIMIT 1;
 ```
@@ -474,7 +474,7 @@ Con las herramientas **ClickHouse** y **Artifacts**, el agente ya no se limita a
 
 Para cada petición:
 1. Pégala en la conversación (o haz clic en el conversation starter).
-2. Mira las consultas que ejecuta el agente: debe leer los comentarios y después filtrar por `codigo_epci` o `id_destinatario`.
+2. Mira las consultas que ejecuta el agente: debe leer los comentarios y después filtrar por `codigo_area` o `id_destinatario`.
 3. Compara las cifras de la página con el resultado esperado.
 4. Pide un retoque en la misma conversación: « añade un filtro por metrópoli », « pasa la curva a áreas apiladas », « exporta a PDF ».
 
@@ -482,7 +482,7 @@ Empieza por **D2** (el mapa de calor) y luego **D1** (el dashboard completo): so
 
 Una buena página: datos reales (nunca inventados), unidades (MW, MWh, %), títulos en español y unas líneas de análisis bajo los gráficos.
 
-**D1** · "Construye un dashboard interactivo de la Métropole du Grand Paris para octubre de 2026: la curva de carga del 15 de octubre (consumo y producción), la energía día a día, el top 10 de municipios, el KPI de completitud a las 9h y las alertas del último día. Añade 3 cifras clave arriba de la página."
+**D1** · "Construye un dashboard interactivo del Área Urbana de Madrid para octubre de 2026: la curva de carga del 15 de octubre (consumo y producción), la energía día a día, el top 10 de municipios, el KPI de completitud a las 9h y las alertas del último día. Añade 3 cifras clave arriba de la página."
 
 Resultado esperado: 5 gráficos y 3 cifras clave (~10 846 MWh, ~4,1 % de cobertura, 98,4 % de KPI medio). En lo esencial, son las consultas de las tarjetas del README de esta carpeta.
 
@@ -495,17 +495,17 @@ WHERE id_destinatario = '488903';
 ```
 </details>
 
-**D2** · "Haz un mapa de calor día × hora del consumo del Grand Paris en octubre y explica en 3 frases lo que muestra."
+**D2** · "Haz un mapa de calor día × hora del consumo del Área Urbana de Madrid en octubre y explica en 3 frases lo que muestra."
 
-Resultado esperado: 31 filas × 24 columnas, de ~8 a ~23 MW. El análisis debe mencionar la punta de la tarde (19h-20h), los fines de semana más tranquilos durante el día y la subida a final de mes.
+Resultado esperado: 31 filas × 24 columnas, de unos 8 MW por la noche a más de 20 MW en la punta. El análisis debe mencionar la punta de la tarde (18h-19h, la franja más oscura), los fines de semana más tranquilos durante el día y la subida a final de mes.
 
 <details><summary>Consulta de verificación</summary>
 
 ```sql
-SELECT toDate(ts - 1, 'Europe/Paris') AS dia, toHour(ts - 900, 'Europe/Paris') AS hora,
+SELECT toDate(ts - 1, 'Europe/Madrid') AS dia, toHour(ts - 900, 'Europe/Madrid') AS hora,
        round(avg(potencia_kw) / 1000, 2) AS consumo_mw
-FROM gold.curva_epci
-WHERE codigo_epci = '200054781' AND magnitud = 'CONS'
+FROM gold.curva_area
+WHERE codigo_area = '001' AND magnitud = 'CONS'
 GROUP BY dia, hora
 ORDER BY dia, hora;
 ```
@@ -513,7 +513,7 @@ ORDER BY dia, hora;
 
 **D3** · "Compara las 6 metrópolis en una sola página: consumo, producción solar, tasa de cobertura y número de alertas del mes. Destaca la más solar."
 
-Resultado esperado: una tabla ordenada y un gráfico. Toulouse y Nantes en cabeza (~5,3 % de cobertura), el Grand Paris, con diferencia, el mayor consumidor (~10 846 MWh) y el que más alertas tiene (140 de las 257 del mes).
+Resultado esperado: una tabla ordenada y un gráfico. Sevilla (~5,5 %) y Málaga (~5,2 %) en cabeza por cobertura, Madrid, con diferencia, el mayor consumidor (~10 846 MWh) y el que más alertas tiene (140 de las 257 del mes).
 
 <details><summary>Consulta de verificación</summary>
 
@@ -525,7 +525,7 @@ SELECT s.entidad,
        any(a.alertas)                                    AS alertas
 FROM gold.resumen_entidad_dia AS s
 INNER JOIN ref.destinatario AS d ON d.id_destinatario = s.id_destinatario
-LEFT JOIN (SELECT codigo_epci, count() AS alertas FROM gold.alertas_pmax GROUP BY codigo_epci) AS a ON a.codigo_epci = d.codigo_epci
+LEFT JOIN (SELECT codigo_area, count() AS alertas FROM gold.alertas_pmax GROUP BY codigo_area) AS a ON a.codigo_area = d.codigo_area
 GROUP BY s.entidad
 ORDER BY cobertura_pct DESC;
 ```
@@ -544,7 +544,7 @@ SELECT dia, datos_9h_pct FROM gold.kpi_completitud_dia WHERE datos_9h_pct < 99 O
 
 **D5** · "¿Qué emplazamientos superan con frecuencia su potencia contratada? Muéstralos en un gráfico (exceso medio y número de días) y di cuáles deberían aumentar su potencia."
 
-Resultado esperado: una veintena de emplazamientos, casi todos C4, con 3 o 4 días de exceso (Lyon, Vanves, Saint-Maurice y Paris en cabeza con 4 días). Buena respuesta: el agente recuerda que en C5 el limitador corta antes de cualquier exceso.
+Resultado esperado: una veintena de emplazamientos, casi todos C4, con 3 o 4 días de exceso (Pallejà, Madrid, Getafe y Móstoles en cabeza con 4 días). Buena respuesta: el agente recuerda que en C5 el limitador corta antes de cualquier exceso.
 
 <details><summary>Consulta de verificación</summary>
 
@@ -559,18 +559,18 @@ LIMIT 20;
 ```
 </details>
 
-**D6** · "Haz una página para un cargo electo de Lyon: 4 cifras clave del mes, la curva de un día laborable tipo y la de un día de fin de semana, todo comprensible para alguien que no es especialista."
+**D6** · "Haz una página para un cargo electo de Barcelona: 4 cifras clave del mes, la curva de un día laborable tipo y la de un día de fin de semana, todo comprensible para alguien que no es especialista."
 
-Resultado esperado: cifras de la Métropole de Lyon (~2 140 MWh, ~3,4 % solar), dos curvas comparadas (el fin de semana más bajo durante el día) y un texto sin jerga.
+Resultado esperado: cifras del Área Urbana de Barcelona (~2 140 MWh, ~3,3 % solar), dos curvas comparadas (el fin de semana más bajo durante el día) y un texto sin jerga.
 
 <details><summary>Consulta de verificación</summary>
 
 ```sql
-SELECT if(toDayOfWeek(toDate(ts - 1, 'Europe/Paris')) >= 6, 'fin de semana', 'laborable') AS tipo_dia,
-       toHour(ts - 900, 'Europe/Paris') AS hora,
+SELECT if(toDayOfWeek(toDate(ts - 1, 'Europe/Madrid')) >= 6, 'fin de semana', 'laborable') AS tipo_dia,
+       toHour(ts - 900, 'Europe/Madrid') AS hora,
        round(avg(potencia_kw) / 1000, 2) AS consumo_mw
-FROM gold.curva_epci
-WHERE codigo_epci = '200046977' AND magnitud = 'CONS'
+FROM gold.curva_area
+WHERE codigo_area = '002' AND magnitud = 'CONS'
 GROUP BY tipo_dia, hora
 ORDER BY tipo_dia, hora;
 ```
@@ -602,7 +602,7 @@ Basta con una frase: el método está en las instrucciones.
 
 | | Petición que hay que pegar | Resultado esperado |
 |---|---|---|
-| **ML1 · Previsión** | « Prevé la curva de carga del Grand Paris para el sábado 31 de octubre a partir de los datos del 1 al 30 de octubre, y compárala con la realidad. » | modelo con **~2,3 %** de error, sábado anterior ~3,3 %, día anterior ~47 %. Punta real a las 19h30, 22,0 MW |
+| **ML1 · Previsión** | « Prevé la curva de carga del Área Urbana de Madrid para el sábado 31 de octubre a partir de los datos del 1 al 30 de octubre, y compárala con la realidad. » | error del modelo del orden del **2,3 %**, sábado anterior del orden del 3,3 %, día anterior del orden del 47 %. Punta real hacia las 19h30, del orden de 22 MW |
 | **ML2 · Segmentación** | « Agrupa los contadores en 3 familias según la forma de su consumo, cruza esas familias con los segmentos C5, C4 y C2, y enséñame cada familia. » | 90 contadores (30 por segmento). 3 familias: **hogares** (25 C5 residenciales, punta de la tarde), **profesionales** (los 30 C4 y 5 pequeños profesionales C5, meseta de 8h a 19h), **industria** (los 30 C2, consumo base alto, activos el fin de semana) |
 | **ML3 · Perfilado** | « Demuéstrame que se puede reconstruir la curva de un contador a partir solo de su energía, con la forma tipo de su familia. » | **~2,3 %** de error con la forma tipo, en cada segmento, frente a ~46 % con una curva plana |
 

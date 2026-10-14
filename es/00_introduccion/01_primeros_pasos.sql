@@ -39,7 +39,7 @@ FROM numbers(10);
 --  texto de 14 cifras, como en los ficheros de la distribuidora.
 SELECT leftPad(toString(10000000000000 + number * 4093 + cityHash64(number) % 4093), 14, '0') AS idContador
 FROM numbers(5);
--- Medido: 1 ms · 5 filas leídas
+-- Medido: 2 ms · 5 filas leídas
 
 
 -- PASO 4 · Una medida de energía diaria: una tupla con nombres se convierte en objeto JSON
@@ -100,6 +100,6 @@ FROM
     FROM numbers(1000000)
 )
 SETTINGS enable_named_columns_in_function_tuple = 1;
--- Medido: 266 ms · 1 M filas leídas (7,6 MB)
+-- Medido: 271 ms · 1 M filas leídas (7,6 MB)
 -- Qué observar: la duración abajo en la consola. Sustituye 1000000 por 10000000:
 -- el tiempo se multiplica más o menos por 10, la velocidad en filas/s se mantiene.

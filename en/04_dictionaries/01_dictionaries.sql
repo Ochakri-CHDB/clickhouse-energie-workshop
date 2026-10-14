@@ -10,21 +10,21 @@
 -- =====================================================================
 
 
--- STEP 1 · The municipality dictionary (text key: COMPLEX_KEY_HASHED)
+-- STEP 1 · The ward dictionary (text key: COMPLEX_KEY_HASHED)
 --  SOURCE says where to read the data, LAYOUT how to store it in memory,
 --  LIFETIME when to reload it. In Cloud, the CLICKHOUSE source must declare
 --  a user: we use dict_reader, which is read-only (module 1).
-CREATE OR REPLACE DICTIONARY ref.dict_municipality
+CREATE OR REPLACE DICTIONARY ref.dict_ward
 (
-    insee_code   String,
+    ward_code   String,
     name          String,
-    dept_code    String,
+    district_code    String,
     region_code  String,
-    epci_code    String,
+    metro_code    String,
     population   UInt32
 )
-PRIMARY KEY insee_code
-SOURCE(CLICKHOUSE(DB 'ref' TABLE 'municipality' USER 'dict_reader' PASSWORD 'Dict_Workshop_2026!'))
+PRIMARY KEY ward_code
+SOURCE(CLICKHOUSE(DB 'ref' TABLE 'ward' USER 'dict_reader' PASSWORD 'Dict_Workshop_2026!'))
 LAYOUT(COMPLEX_KEY_HASHED())
 LIFETIME(MIN 3600 MAX 7200);          -- reloaded every 1 to 2 hours
 
@@ -33,7 +33,7 @@ LIFETIME(MIN 3600 MAX 7200);          -- reloaded every 1 to 2 hours
 CREATE OR REPLACE DICTIONARY ref.dict_meter
 (
     meter_id         UInt64,
-    insee_code     String,
+    ward_code     String,
     segment        String,
     profile         String,
     power_kva  UInt16,
@@ -63,28 +63,28 @@ LAYOUT(RANGE_HASHED())
 RANGE(MIN valid_from MAX valid_to)
 LIFETIME(MIN 3600 MAX 7200);
 
---  EPCI and department labels
-CREATE OR REPLACE DICTIONARY ref.dict_epci (epci_code String, name String)
-PRIMARY KEY epci_code
-SOURCE(CLICKHOUSE(DB 'ref' TABLE 'epci' USER 'dict_reader' PASSWORD 'Dict_Workshop_2026!'))
+--  Labels for metro areas (combined authorities and Greater London) and districts
+CREATE OR REPLACE DICTIONARY ref.dict_metro (metro_code String, name String)
+PRIMARY KEY metro_code
+SOURCE(CLICKHOUSE(DB 'ref' TABLE 'metro' USER 'dict_reader' PASSWORD 'Dict_Workshop_2026!'))
 LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(86400);
 
-CREATE OR REPLACE DICTIONARY ref.dict_department (dept_code String, name String, region_code String)
-PRIMARY KEY dept_code
-SOURCE(CLICKHOUSE(DB 'ref' TABLE 'department' USER 'dict_reader' PASSWORD 'Dict_Workshop_2026!'))
+CREATE OR REPLACE DICTIONARY ref.dict_district (district_code String, name String, region_code String)
+PRIMARY KEY district_code
+SOURCE(CLICKHOUSE(DB 'ref' TABLE 'district' USER 'dict_reader' PASSWORD 'Dict_Workshop_2026!'))
 LAYOUT(COMPLEX_KEY_HASHED()) LIFETIME(86400);
 
 
 -- STEP 4 · Usage: one meter, its full profile, in one row
---  The dictGets chain together: meter → municipality → department. No JOIN.
+--  The dictGets chain together: meter → ward → district. No JOIN.
 SELECT
     sim_meter_id(42)                                                              AS meter_id,
     dictGet('ref.dict_meter', 'segment', meter_id)                                  AS segment,
     dictGet('ref.dict_meter', 'power_kva', meter_id)                            AS kva_current,
-    dictGet('ref.dict_meter', 'insee_code', meter_id)                               AS insee_code,
-    dictGet('ref.dict_municipality', 'name', insee_code)                              AS municipality,
-    dictGet('ref.dict_department', 'name', dictGet('ref.dict_municipality', 'dept_code', insee_code)) AS department,
-    dictGet('ref.dict_epci', 'name', dictGet('ref.dict_municipality', 'epci_code', insee_code))       AS epci;
+    dictGet('ref.dict_meter', 'ward_code', meter_id)                               AS ward_code,
+    dictGet('ref.dict_ward', 'name', ward_code)                              AS ward,
+    dictGet('ref.dict_district', 'name', dictGet('ref.dict_ward', 'district_code', ward_code)) AS district,
+    dictGet('ref.dict_metro', 'name', dictGet('ref.dict_ward', 'metro_code', ward_code))       AS metro;
 -- Measured: 3 ms · 1 row read
 
 
@@ -92,14 +92,14 @@ SELECT
 --  Take a meter whose power changed in October
 SELECT meter_id, valid_from, valid_to, power_kva
 FROM ref.meter_history
-WHERE meter_id IN (SELECT meter_id FROM ref.meter_history WHERE valid_to = '2026-10-14' LIMIT 1)
+WHERE meter_id IN (SELECT meter_id FROM ref.meter_history WHERE valid_to = '2026-10-14' ORDER BY meter_id LIMIT 1)
 ORDER BY valid_from;
--- Measured: 9 ms · 991,232 rows read (9.5 MB)
+-- Measured: 8 ms · 991,232 rows read (9.5 MB)
 
 SELECT
     day,
     dictGet('ref.dict_power_asof', 'power_kva', p.meter_id, day) AS kva_at_date
-FROM (SELECT meter_id FROM ref.meter_history WHERE valid_to = '2026-10-14' LIMIT 1) AS p
+FROM (SELECT meter_id FROM ref.meter_history WHERE valid_to = '2026-10-14' ORDER BY meter_id LIMIT 1) AS p
 CROSS JOIN (SELECT toDate('2026-10-12') + number AS day FROM numbers(5)) AS j;
 -- Measured: 8 ms · 983,045 rows read (9.4 MB)
 -- What to look for: on the 15th, the new power applies. Essential for the
@@ -107,31 +107,32 @@ CROSS JOIN (SELECT toDate('2026-10-12') + number AS day FROM numbers(5)) AS j;
 
 
 -- STEP 6 · Dictionary vs JOIN: same result, compare the timings
---  Energy for the month by department. sum(value_w) * 0.5: an average power
+--  Energy for the month by district. sum(value_w) * 0.5: an average power
 --  over a half-hour × 0.5 h = an energy in Wh.
 SELECT
-    dictGet('ref.dict_municipality', 'dept_code', dictGet('ref.dict_meter', 'insee_code', meter_id)) AS dept,
+    dictGet('ref.dict_ward', 'district_code', dictGet('ref.dict_meter', 'ward_code', meter_id)) AS district_code,
     round(sum(value_w) * 0.5 / 1e6) AS mwh
 FROM silver.load_curve
 WHERE quantity = 'CONS'
-GROUP BY dept
+GROUP BY district_code
 ORDER BY mwh DESC
 LIMIT 10;
--- Measured: 271 ms · 29.8 M rows read (369.5 MB) · 174.9 MB of memory
+-- Measured: 348 ms · 29.8 M rows read (369.6 MB) · 204.8 MB memory
 
 SELECT
-    c.dept_code AS dept,
+    c.district_code AS district_code,
     round(sum(s.value_w) * 0.5 / 1e6) AS mwh
 FROM silver.load_curve AS s
 INNER JOIN ref.meter     AS p ON p.meter_id = s.meter_id
-INNER JOIN ref.municipality AS c ON c.insee_code = p.insee_code
+INNER JOIN ref.ward AS c ON c.ward_code = p.ward_code
 WHERE s.quantity = 'CONS'
-GROUP BY dept
+GROUP BY district_code
 ORDER BY mwh DESC
 LIMIT 10;
--- Measured: 282 ms · 30.8 M rows read (385.1 MB) · 282.1 MB of memory
--- What to look for: same result. Compare duration and memory at the bottom of the console:
--- the JOIN must first load ref.meter and ref.municipality into memory, the dictionary does not.
+-- Measured: 262 ms · 30.8 M rows read (388.8 MB) · 279.3 MB memory
+-- What to look for: same result (Birmingham, E08000025, first with 812 MWh). Compare duration and
+-- memory at the bottom of the console: the JOIN must first load ref.meter and ref.ward into memory,
+-- the dictionary does not (205 MB vs 279 MB here). On this small table the timings are close.
 
 
 -- STEP 7 · Quality: are there meters missing from the reference data?
@@ -143,26 +144,27 @@ WHERE NOT dictHas('ref.dict_meter', meter_id);
 
 
 -- STEP 8 · What it costs in memory
---  What to look for: a few tens of MB for 1 million meters. The "as of"
---  dictionary is bigger because it stores intervals per key.
+--  What to look for: about 100 MB for 1 million meters, 4 MB for the 7,588 wards. The "as of"
+--  dictionary is bigger (about 345 MB) because it stores intervals per key.
 SELECT name, status, type, element_count, formatReadableSize(bytes_allocated) AS memory, loading_duration
 FROM system.dictionaries
 WHERE database = 'ref';
 
 
--- GOING FURTHER · Fuzzy address matching (the BAN national address database case)
+-- GOING FURTHER · Fuzzy matching of a typed place name against the reference data
 --  ngramDistance measures how similar two texts are (0 = identical):
---  it finds "Rueil-Malmaison" despite the typo.
-SELECT name, insee_code, round(ngramDistanceCaseInsensitiveUTF8(replaceAll(name, '-', ' '), 'Rueil Malmaizon'), 3) AS distance
-FROM ref.municipality
+--  it finds "Shepherd's Bush Green" despite the typo.
+SELECT name, ward_code, round(ngramDistanceCaseInsensitiveUTF8(replaceAll(name, '-', ' '), 'Shepherds Bush Gren'), 3) AS distance
+FROM ref.ward
 ORDER BY distance ASC
 LIMIT 3;
--- Measured: 9 ms · 61,746 rows read (995.3 KB)
+-- Measured: 4 ms · 15,176 rows read (274.2 KB)
+-- What to look for: Shepherd's Bush Green (E05013748) first at 0.222, the next one above 0.67.
 
 
 -- CHECKPOINT
 SELECT
     if((SELECT element_count FROM system.dictionaries WHERE database = 'ref' AND name = 'dict_meter') = 1000000, 'OK', 'FAIL') AS dict_meter,
     if((SELECT status FROM system.dictionaries WHERE database = 'ref' AND name = 'dict_power_asof') = 'LOADED', 'OK', 'FAIL') AS dict_asof,
-    if(dictGet('ref.dict_municipality', 'name', '92063') = 'Rueil-Malmaison', 'OK', 'FAIL') AS dict_municipality
+    if(dictGet('ref.dict_ward', 'name', 'E05013748') = 'Shepherd''s Bush Green', 'OK', 'FAIL') AS dict_ward
 SETTINGS select_sequential_consistency = 1;   -- read the latest version, whichever replica serves it

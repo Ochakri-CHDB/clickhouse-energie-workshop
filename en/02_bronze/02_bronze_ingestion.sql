@@ -4,7 +4,7 @@
 --  Golden rule of bronze: store the raw data, transform nothing.
 --  One row = one received file (1000 meters, 1 day).
 --  Volume: 20,000 meters × 31 days, flows CURVE (30-min curves), ENERGY (daily energy), PMAX (max power)
---  Recipients: the 6 metropolitan areas (12 batches for Grand Paris, 2 for Lyon…)
+--  Recipients: the 6 metropolitan areas (12 batches for Greater London, 2 for West Midlands…)
 --
 --  Why keep the raw data? If a parsing rule changes or a bug is
 --  fixed, everything can be rebuilt from bronze (module 7), without asking
@@ -36,13 +36,13 @@ WITH
     toDate('2026-10-01') + intDiv(number, 20)                                  AS day,
     number % 20                                                                 AS batch,
     -- arrival: the next day between 6am and 8am, except ~1% of late files (in the afternoon)
-    toDateTime64(toDateTime(day + 1, 'Europe/Paris'), 3, 'UTC')
+    toDateTime64(toDateTime(day + 1, 'Europe/London'), 3, 'UTC')
         + toIntervalSecond(if(sim_random(day, batch, 'retard') < 0.01, 50400, 21600 + batch * 300 + cityHash64(day, batch) % 240)) AS arrival,
     sim_day_points(day)                                                    AS timestamps,
     -- ~0.3% of meters sent nothing that day (communication failure)
     arrayFilter(n -> sim_random(n, day, 'panne') >= 0.003, range(batch * 1000, batch * 1000 + 1000)) AS ns,
     arrayMap(n -> sim_meter_id(n), ns)                                            AS ids,
-    arrayMap(id -> dictGet('simulator.dict_meter', ('profile', 'power_kva', 'pv_kwp', 'dept_code'), id), ids) AS attrs
+    arrayMap(id -> dictGet('simulator.dict_meter', ('profile', 'power_kva', 'pv_kwp', 'district_code'), id), ids) AS attrs
 SELECT
     concat('DSO_CURVE_30MIN_PUB_', toString(100000 + number), '_', sim_recipient(batch), '_', formatDateTime(arrival, '%Y%m%d%H%i%S'), '.zip') AS file_name,
     'CURVE'   AS flow_code,
@@ -70,19 +70,19 @@ SELECT
                                                        points Array(Tuple(d String, v String)))))))')) AS payload
 FROM numbers(0, 20)
 SETTINGS max_block_size = 2;   -- 2 files per block: each file weighs ~2 MB of JSON, we keep memory low
--- Measured: 697 ms · 20 JSON files generated and written (46 MB) · 208.5 MB of memory
+-- Measured: 647 ms · 20 rows read · 20 rows written · 208.4 MB memory
 
 --  What did we receive? length() gives the size of the JSON in bytes.
 SELECT flow_code, count() AS files, formatReadableSize(sum(length(payload))) AS json_volume
 FROM bronze.raw_flows
 GROUP BY flow_code;
--- Measured: 6 ms · 20 rows read
+-- Measured: 5 ms · 20 rows read
 
 --  A file, exactly as it was received
 SELECT file_name, ingested_at, substring(payload, 1, 600) AS json_start
 FROM bronze.raw_flows
 LIMIT 1;
--- Measured: 13 ms · 5 rows read (11.5 MB)
+-- Measured: 12 ms · 5 rows read (11.5 MB)
 
 
 -- STEP 3 · The rest of the month: days 2 to 30 (580 files, ~28 million points)
@@ -120,7 +120,7 @@ SELECT
 FROM bronze.raw_flows
 GROUP BY flow_code
 ORDER BY flow_code;
--- Measured: 58 ms · 1,800 rows read (29.9 KB)
+-- Measured: 74 ms · 1,800 rows read (29.9 KB)
 
 --  How much does it really weigh on disk? (ZSTD compression of the JSON)
 --  What to look for: the JSON is very repetitive (same keys, same dates): it

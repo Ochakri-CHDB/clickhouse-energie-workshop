@@ -4,8 +4,11 @@ Un día de recogida de los contadores inteligentes de una distribuidora eléctri
 ficheros JSON con el formato de una distribuidora (DSO) (CURVA curvas de 30 min, ENERGIA energía diaria, PMAX potencia máxima)
 pasan a bronze, luego a silver, luego a gold, hasta llegar a dashboards, a una API y a un agente de IA.
 
-Todos los datos están **simulados en SQL** (ningún fichero de cliente, ninguna herramienta externa) y
-son deterministas: todo el mundo obtiene las mismas cifras.
+Todos los datos de medida están **simulados en SQL** (ningún fichero de cliente, ninguna herramienta externa) y
+son deterministas: todo el mundo obtiene las mismas cifras. Solo la geografía es real: los municipios de España
+(padrón del INE a 1 de enero de 2025) y las Grandes Áreas Urbanas del Ministerio de Transportes, leídos en directo.
+Todas las horas locales son de Madrid, también para los contadores de Canarias (que en realidad van una hora por detrás):
+la simulación usa la hora peninsular para todo el parque.
 
 ```
  JSON CURVA/ENERGIA/PMAX ──► bronze ──MV──► silver ──MV / vistas refrescables──► gold ──► dashboard
@@ -25,8 +28,8 @@ flowchart LR
     subgraph SRC["Fuentes"]
         direction TB
         SIM["Simulador SQL<br/>UDF + 3 vistas parametrizadas<br/>que fabrican los ficheros"]
-        GEO["geo.api.gouv.fr<br/>leído con url()"]
-        REF["ref.*<br/>municipios, contadores, kVA"]
+        GEO["INE y Ministerio de Transportes<br/>datos abiertos leídos con url()"]
+        REF["ref.*<br/>municipios, áreas urbanas, contadores, kVA"]
         DICT["5 diccionarios<br/>dictGet en silver y gold"]
     end
     subgraph BRZ["Bronze"]
@@ -41,7 +44,7 @@ flowchart LR
     subgraph GLD["Gold"]
         COL["recogida_contador_dia<br/>AggregatingMergeTree, tiempo real"]
         KPI["kpi_completitud_dia<br/>refrescada a las 9h"]
-        CE["curva_epci<br/>cada 10 min"]
+        CE["curva_area<br/>cada 10 min"]
         ECJ["energia_municipio_dia<br/>cada 10 min"]
         SYN["resumen_entidad_dia<br/>DEPENDS ON energia_municipio_dia"]
         AL["alertas_pmax<br/>potencia a fecha"]
@@ -50,7 +53,7 @@ flowchart LR
     subgraph EXP["Exposición"]
         APIC["api_curva_entidad<br/>vista parametrizada"]
         APIS["api_resumen_entidad<br/>vista parametrizada"]
-        RP["row policy<br/>role_grand_paris"]
+        RP["row policy<br/>role_madrid"]
     end
     subgraph USG["Usos"]
         DASH["Dashboard<br/>5 paneles, de 6 a 28 ms"]
@@ -82,11 +85,11 @@ flowchart LR
 
 | Capa | Objetos | Lo que hay que retener |
 |---|---|---|
-| **Fuentes** | simulador SQL (funciones `sim_*`, 3 vistas parametrizadas), `geo.api.gouv.fr`, referenciales `ref.*`, 5 diccionarios | todo se genera en SQL, de forma determinista |
+| **Fuentes** | simulador SQL (funciones `sim_*`, 3 vistas parametrizadas), datos abiertos del INE y del Ministerio de Transportes, referenciales `ref.*`, 5 diccionarios | todo se genera en SQL, de forma determinista |
 | **Bronze** | `bronze.flujos_brutos` | 1 fila = 1 fichero JSON bruto (CURVA, ENERGIA, PMAX), comprimido ×15, purgado a los 90 días |
 | **Silver** | `curva_carga`, `rechazos`, `pmax_dia`, `energia_dia` | 4 vistas materializadas despliegan el JSON en cada INSERT; ReplacingMergeTree conserva la última versión |
-| **Gold** | `recogida_contador_dia`, `kpi_completitud_dia`, `curva_epci`, `energia_municipio_dia`, `resumen_entidad_dia`, `alertas_pmax`, `v_conciliacion` | 1 vista materializada en tiempo real, 5 vistas materializadas refrescables (10 min o 9h), 1 vista simple |
-| **Exposición** | `api_curva_entidad`, `api_resumen_entidad`, row policies del rol `role_grand_paris` | el portal solo envía parámetros; la seguridad por territorio está en la base de datos |
+| **Gold** | `recogida_contador_dia`, `kpi_completitud_dia`, `curva_area`, `energia_municipio_dia`, `resumen_entidad_dia`, `alertas_pmax`, `v_conciliacion` | 1 vista materializada en tiempo real, 5 vistas materializadas refrescables (10 min o 9h), 1 vista simple |
+| **Exposición** | `api_curva_entidad`, `api_resumen_entidad`, row policies del rol `role_madrid` | el portal solo envía parámetros; la seguridad por territorio está en la base de datos |
 | **Usos** | dashboard, Query API endpoint, ClickHouse Agents | todo lee gold, en pocos milisegundos |
 
 Alrededor del flujo principal: la tabla de 1 500 millones de puntos (módulo 06), el reproceso de un mes publicado con REPLACE PARTITION (módulo 07) y la observabilidad con las tablas `system.*`.
@@ -125,7 +128,7 @@ Con esta configuración, encontrarás las duraciones anotadas en comentario (`Me
 |---|---|---|---|
 | 0:00 | Introducción | La plataforma: ClickHouse Cloud, almacenamiento y cómputo separados, ClickPipes, Agents | 15 min |
 | 0:15 | **00** [Primeros pasos](00_introduccion/01_primeros_pasos.sql) | De `numbers()` a un fichero de energía diaria en JSON, y luego 1 millón de medidas en una consulta | 15 min |
-| 0:30 | **01** [Fundamentos](01_fundamentos/01_configuracion_y_referenciales.sql) | MergeTree, índice disperso, compresión. Los 34 969 municipios leídos en directo de geo.api.gouv.fr, 1 millón de contadores | 25 min |
+| 0:30 | **01** [Fundamentos](01_fundamentos/01_configuracion_y_referenciales.sql) | MergeTree, índice disperso, compresión. Los 8 132 municipios de España leídos en directo del INE, sus áreas urbanas calculadas con `pointInPolygon`, 1 millón de contadores | 25 min |
 | 0:55 | **02** [Bronze](02_bronze/) | El simulador de flujos de medida (UDF, vistas parametrizadas) y 1 800 ficheros JSON brutos, 1,7 GB | 25 min |
 | 1:20 | *Pausa* | | 10 min |
 | 1:30 | **03** [Silver](03_silver/) | Vistas materializadas, triple ARRAY JOIN, backfill, reenvíos, correcciones, cambio de hora | 35 min |
@@ -188,7 +191,7 @@ Todo desde cero, reset incluido: unos 4 minutos.
 
 Los resultados detallados de cada fichero quedan en `logs/`. Los módulos dependen de los anteriores: para retomar en el módulo 05, los módulos 00 a 04 tienen que haberse ejecutado.
 
-[`reset.sql`](reset.sql) borra **únicamente** lo que ha creado el workshop: las bases de datos `ref`, `bronze`, `silver`, `gold`, `simulador`, las funciones `sim_*`, el usuario `dict_reader`, el rol `role_grand_paris` y sus row policies.
+[`reset.sql`](reset.sql) borra **únicamente** lo que ha creado el workshop: las bases de datos `ref`, `bronze`, `silver`, `gold`, `simulador`, las funciones `sim_*`, el usuario `dict_reader`, el rol `role_madrid` y sus row policies.
 
 ---
 
@@ -204,8 +207,8 @@ Todo lo que aparece en las slides y en el repo, en una línea.
 | **CONS · PROD** | energía consumida y energía producida (paneles solares) | **FINAL** | lee la última versión de cada fila, sin duplicados | **CDC (base de datos)** | Change Data Capture: copia continua de los cambios de una base de datos |
 | **C5 · C4 · C2** | segmentos: hasta 36 kVA, de 36 a 250 kVA, conectado en media tensión (HTA) | **TTL** | tiempo de vida: purga automática de las filas demasiado antiguas | **OTel** | OpenTelemetry: estándar de recogida de logs, métricas y trazas |
 | **RES · PRO · ENT** | perfiles: residencial, profesional, empresa | **UDF** | función SQL definida por el usuario, reutilizable en cualquier sitio | **MCP** | Model Context Protocol: conecta un agente de IA con herramientas y datos |
-| **EPCI** | mancomunidad (metrópoli, área urbana): ámbito de una entidad local | **ASOF JOIN** | unión con el valor más cercano, por ejemplo a una fecha | **KPI** | indicador clave, por ejemplo el 99 % de los datos recibidos a las 9h |
-| **INSEE** | código oficial de un municipio, 5 caracteres | **ZSTD** | Zstandard: el algoritmo que comprime las columnas | **BI** | inteligencia de negocio: cuadros de mando e informes |
+| **Área urbana** | Gran Área Urbana: una gran ciudad y su aglomeración (86 en España, delimitadas por el Ministerio de Transportes). Es el ámbito de una entidad local | **ASOF JOIN** | unión con el valor más cercano, por ejemplo a una fecha | **KPI** | indicador clave, por ejemplo el 99 % de los datos recibidos a las 9h |
+| **Código INE** | código oficial de un municipio, 5 cifras: las 2 primeras son la provincia | **ZSTD** | Zstandard: el algoritmo que comprime las columnas | **BI** | inteligencia de negocio: cuadros de mando e informes |
 | **VA · W · Wh** | potencia aparente, potencia activa, energía. k, M, G: mil, millón, mil millones | **UTC** | tiempo universal, sin cambio de hora: el formato de almacenamiento | **RGPD** | reglamento europeo de protección de datos personales |
 
 ---
@@ -215,7 +218,7 @@ Todo lo que aparece en las slides y en el repo, en una línea.
 | Carpeta o fichero | Contenido |
 |---|---|
 | [`00_introduccion/`](00_introduccion/) | primeros pasos |
-| [`01_fundamentos/`](01_fundamentos/) | bases de datos, MergeTree, referenciales (municipios INSEE, contadores) |
+| [`01_fundamentos/`](01_fundamentos/) | bases de datos, MergeTree, referenciales (municipios del INE, áreas urbanas, contadores) |
 | [`02_bronze/`](02_bronze/) | simulador de flujos de medida, ingesta de los JSON |
 | [`03_silver/`](03_silver/) | vistas materializadas, duplicados, correcciones, cambio de hora |
 | [`04_diccionarios/`](04_diccionarios/) | enriquecimiento en memoria |
@@ -223,7 +226,7 @@ Todo lo que aparece en las slides y en el repo, en una línea.
 | [`06_rendimiento/`](06_rendimiento/) | 1 500 millones de puntos, optimizaciones medidas |
 | [`07_operacion/`](07_operacion/) | reproceso, TTL, seguridad, observabilidad |
 | [`08_dashboards_agente/`](08_dashboards_agente/README.md) | README paso a paso: dashboard, API, ClickHouse Agents (ningún fichero SQL) |
-| [`../data/`](../data/) | referenciales INSEE de respaldo (si geo.api.gouv.fr no responde), en la raíz del repo |
+| [`../data/es/`](../data/es/) | referenciales de respaldo (municipios, provincias, comunidades autónomas, áreas urbanas) por si el INE o el Ministerio de Transportes no responden, en la raíz del repo |
 | [`run_all.sh`](run_all.sh), [`reset.sql`](reset.sql) | ejecución completa y limpieza |
 | [`RESULTADOS.md`](RESULTADOS.md) | cifras medidas en el servicio de pruebas, módulo a módulo |
 

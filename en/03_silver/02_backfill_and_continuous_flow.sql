@@ -18,7 +18,7 @@ ARRAY JOIN m.quantity AS g
 ARRAY JOIN g.points   AS p
 WHERE flow_code = 'CURVE' AND toUInt32OrNull(p.v) IS NOT NULL
 SETTINGS max_block_size = 4;
--- Measured: 18.1 s · 600 files read (1.3 GB of JSON) · 29.9 M rows written · 1.7 GB of memory
+-- Measured: 17.6 s · 600 files read (1.3 GB of JSON) · 29.9 M rows written · 1.7 GB of memory
 -- What to look for: ~30 million points extracted from the JSON. Check the rows/s speed
 -- at the bottom of the console: all the JSON parsing happens inside the database.
 
@@ -30,7 +30,7 @@ ARRAY JOIN m.quantity AS g
 ARRAY JOIN g.points   AS p
 WHERE flow_code = 'CURVE' AND toUInt32OrNull(p.v) IS NULL
 SETTINGS max_block_size = 4;
--- Measured: 2.67 s · 600 files read (1.3 GB of JSON) · 8,754 rows written · 1,018.2 MB of memory
+-- Measured: 2.66 s · 600 files read (1.3 GB of JSON) · 8,758 rows written · 1.1 GB of memory
 
 INSERT INTO silver.daily_energy
 SELECT toUInt64(m.meterId), g.businessQuantity, toDate(p.d), toDecimal64(p.v, 2), m.stage, ingested_at
@@ -39,7 +39,7 @@ ARRAY JOIN JSONExtract(payload, 'measurements', 'Array(Tuple(meterId String, sta
 ARRAY JOIN m.quantity AS g
 ARRAY JOIN g.points   AS p
 WHERE flow_code = 'ENERGY';
--- Measured: 755 ms · 600 files read (168.3 MB of JSON) · 625,080 rows written · 327.4 MB of memory
+-- Measured: 684 ms · 600 files read (163.8 MB of JSON) · 625,080 rows written · 413.4 MB of memory
 
 INSERT INTO silver.daily_pmax
 SELECT toUInt64(m.meterId), toDate(m.period.startDate), toUInt32(p.v), parseDateTimeBestEffort(p.d, 'UTC'), ingested_at
@@ -48,7 +48,7 @@ ARRAY JOIN JSONExtract(payload, 'measurements', 'Array(Tuple(meterId String, per
 ARRAY JOIN m.quantity AS g
 ARRAY JOIN g.points   AS p
 WHERE flow_code = 'PMAX';
--- Measured: 675 ms · 600 files read (144.9 MB of JSON) · 600,000 rows written · 407.3 MB of memory
+-- Measured: 830 ms · 600 files read (142.6 MB of JSON) · 600,000 rows written · 405 MB of memory
 
 SELECT
     (SELECT count() FROM silver.load_curve) AS curve_points,
@@ -62,15 +62,15 @@ SELECT
 --  We insert ONLY into bronze. Watch silver fill up on its own.
 --  The whole chain fires: bronze → MV → silver → MV (module 5) → gold.
 SELECT count() AS points_before FROM silver.load_curve WHERE day = '2026-10-31';
--- Measured: 65 ms · 29.9 M rows read (57.1 MB)
+-- Measured: 56 ms · 29.9 M rows read (57.1 MB)
 
 INSERT INTO bronze.raw_flows
 SELECT * FROM simulator.curve_files(start = 600, n = 20)
 SETTINGS max_block_size = 2;
--- Measured: 5.95 s · 100 files read (183.8 MB of JSON) · 996,328 rows written · 306.1 MB of memory
+-- Measured: 5.91 s · 100 files read (183.5 MB of JSON) · 996,334 rows written · 305.8 MB of memory
 
 SELECT count() AS points_after FROM silver.load_curve WHERE day = '2026-10-31';
--- Measured: 65 ms · 25 M rows read (47.8 MB)
+-- Measured: 52 ms · 25.1 M rows read (47.9 MB)
 -- What to look for: the number of points for the 31st goes from 0 to ~1 million.
 -- Whatever the source of the INSERT into bronze, the materialized views propagate it.
 

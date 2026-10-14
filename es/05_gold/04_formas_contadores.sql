@@ -45,15 +45,15 @@ SELECT
 FROM
 (
     SELECT id_contador,
-           if(toDayOfWeek(ts - 1, 0, 'Europe/Paris') >= 6, 'fin de semana', 'laborable') AS tipo_dia,
-           toHour(ts - 900, 'Europe/Paris') AS hora,
+           if(toDayOfWeek(ts - 1, 0, 'Europe/Madrid') >= 6, 'fin de semana', 'laborable') AS tipo_dia,
+           toHour(ts - 900, 'Europe/Madrid') AS hora,
            avg(valor_w) AS consumo_w
     FROM silver.curva_carga FINAL
     WHERE magnitud = 'CONS'
     GROUP BY id_contador, tipo_dia, hora
 )
 GROUP BY id_contador;
--- Medido: 817 ms · 30,1 M filas leídas (744,7 MB) · 19 999 filas escritas · 544,1 MB de memoria
+-- Medido: 431 ms · 30,5 M filas leídas (727,4 MB) · 20 000 filas escritas · 463,1 MB de memoria
 
 
 -- PASO 3 · Comentarios para el agente (módulo 8)
@@ -64,16 +64,16 @@ ALTER TABLE gold.perfil_contador
     COMMENT COLUMN segmento       'C5 (hasta 36 kVA), C4 (de 36 a 250 kVA), C2 (conectado en media tensión, HTA)',
     COMMENT COLUMN perfil        'Perfil declarado: RES (residencial), PRO (profesional), ENT (empresa, industria)',
     COMMENT COLUMN consumo_medio_w   'Potencia media del contador en el mes, en W',
-    COMMENT COLUMN forma_laborable '24 valores, de 0h a 23h (hora de París), día laborable, divididos por consumo_medio_w',
-    COMMENT COLUMN forma_finde '24 valores, de 0h a 23h (hora de París), día de fin de semana, divididos por consumo_medio_w';
--- Medido: 79 ms
+    COMMENT COLUMN forma_laborable '24 valores, de 0h a 23h (hora de Madrid), día laborable, divididos por consumo_medio_w',
+    COMMENT COLUMN forma_finde '24 valores, de 0h a 23h (hora de Madrid), día de fin de semana, divididos por consumo_medio_w';
+-- Medido: 74 ms
 
 
 -- PASO 4 · Las formas medias por perfil
 SELECT perfil, count() AS contadores, arrayMap(x -> round(x, 1), any(forma_laborable)) AS ejemplo_laborable
 FROM gold.perfil_contador
 GROUP BY perfil;
--- Medido: 8 ms · 19 999 filas leídas (2 MB)
+-- Medido: 9 ms · 20 000 filas leídas (2 MB)
 -- Qué observar: la punta de la tarde-noche de los hogares (RES), la meseta de 8h a 19h de
 -- los profesionales (PRO), la base de consumo elevada de la industria (ENT).
 
@@ -82,7 +82,7 @@ SELECT segmento, perfil, count() AS contadores
 FROM (SELECT segmento, perfil FROM gold.perfil_contador ORDER BY cityHash64(id_contador) LIMIT 30 BY segmento)
 GROUP BY segmento, perfil
 ORDER BY segmento, perfil;
--- Medido: 4 ms · 19 999 filas leídas (195,4 KB)
+-- Medido: 4 ms · 20 000 filas leídas (195,4 KB)
 -- Qué observar: LIMIT 30 BY segmento conserva 30 filas por cada valor de segmento.
 -- El segmento C5 mezcla hogares y pequeños profesionales.
 

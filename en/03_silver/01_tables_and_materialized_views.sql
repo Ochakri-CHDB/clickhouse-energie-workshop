@@ -23,7 +23,7 @@ CREATE OR REPLACE TABLE silver.load_curve
     step_min       UInt8,
     stage  LowCardinality(String),                        -- RAW / CORRECTED
     version       DateTime64(3, 'UTC') CODEC(Delta, ZSTD(1)),    -- file arrival: the most recent wins
-    day          Date MATERIALIZED toDate(ts - 1, 'Europe/Paris') -- computed at insert: the local day (ts - 1 because 00:00 closes the previous day)
+    day          Date MATERIALIZED toDate(ts - 1, 'Europe/London') -- computed at insert: the local day (ts - 1 because 00:00 closes the previous day)
 )
 ENGINE = ReplacingMergeTree(version)
 PARTITION BY toYYYYMM(ts)                -- one partition per month: few of them, bounded
@@ -84,7 +84,7 @@ CREATE OR REPLACE MATERIALIZED VIEW silver.mv_curve TO silver.load_curve AS
 SELECT
     toUInt64(m.meterId)                         AS meter_id,
     g.businessQuantity                          AS quantity,
-    parseDateTimeBestEffort(p.d, 'UTC')       AS ts,                -- "+01:00" / "+02:00" → UTC
+    parseDateTimeBestEffort(p.d, 'UTC')       AS ts,                -- "+01:00" (BST) / "+00:00" (GMT) → UTC
     toUInt32(p.v)                             AS value_w,
     toUInt8(extract(m.step, '\\d+'))           AS step_min,           -- 'PT30M' → 30
     m.stage                             AS stage,

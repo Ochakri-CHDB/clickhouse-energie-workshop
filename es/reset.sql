@@ -2,11 +2,11 @@
 --  RESET · Borra todo lo que ha creado el workshop (y nada más)
 -- =====================================================================
 -- Las row policies y el rol del módulo 7 (sobreviven al DROP DATABASE)
-DROP ROW POLICY IF EXISTS rp_gp_energie  ON gold.energia_municipio_dia;
-DROP ROW POLICY IF EXISTS rp_gp_courbe   ON gold.curva_epci;
-DROP ROW POLICY IF EXISTS rp_gp_synthese ON gold.resumen_entidad_dia;
-DROP ROW POLICY IF EXISTS rp_gp_alertes  ON gold.alertas_pmax;
-DROP ROLE IF EXISTS role_grand_paris;
+DROP ROW POLICY IF EXISTS rp_mad_energie  ON gold.energia_municipio_dia;
+DROP ROW POLICY IF EXISTS rp_mad_courbe   ON gold.curva_area;
+DROP ROW POLICY IF EXISTS rp_mad_synthese ON gold.resumen_entidad_dia;
+DROP ROW POLICY IF EXISTS rp_mad_alertes  ON gold.alertas_pmax;
+DROP ROLE IF EXISTS role_madrid;
 DROP DATABASE IF EXISTS gold SYNC;
 DROP DATABASE IF EXISTS silver SYNC;
 DROP DATABASE IF EXISTS bronze SYNC;

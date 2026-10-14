@@ -23,11 +23,11 @@ Duration: 1 h. Everything happens in the Cloud console, following the steps belo
 | 1 | Load curve, consumption and production | Line | authority, day |
 | 2 | Monthly heatmap, day × hour | Heatmap | authority |
 | 3 | Energy per day | Stacked bar | authority |
-| 4 | Top 10 municipalities | Horizontal bar | authority |
+| 4 | Top 10 wards | Horizontal bar | authority |
 | 5 | Power overrun alerts | Table | authority |
 
 The filters take human-readable values:
-- **authority**: part of the name, case does not matter. `Paris`, `Lyon`, `Lille`, `Toulouse`, `Bordeaux` or `Nantes`.
+- **authority**: part of the name, case does not matter. `London`, `West Midlands`, `Greater Manchester`, `West Yorkshire`, `Liverpool City Region` or `North East`.
 - **day**: a date in October 2026 in YYYY-MM-DD format, for example `2026-10-15`.
 
 Since all 5 tiles use the **same parameter names**, a single filter drives the whole dashboard.
@@ -41,7 +41,7 @@ Since all 5 tiles use the **same parameter names**, a single filter drives the w
 1. Top right, click **+ New visualization**. An empty tile appears and the **Edit element** panel opens on the right.
 2. **General** tab, **Query** field: choose **New query**. The **Inline Editor** opens.
 3. Paste the tile's query (cards below).
-4. To the right of the editor, the **Query Parameters** panel shows the detected parameters. Enter the test values: `authority` = `Paris`, and for tile 1 `day` = `2026-10-15`.
+4. To the right of the editor, the **Query Parameters** panel shows the detected parameters. Enter the test values: `authority` = `London`, and for tile 1 `day` = `2026-10-15`.
 5. Run with the ▷ button, check the result, then save with the **floppy disk** icon, under the tile's name.
 6. **Visualization type**: choose the type given on the card.
 7. **Data** tab: map the columns to the axes as given on the card.
@@ -53,28 +53,28 @@ Since all 5 tiles use the **same parameter names**, a single filter drives the w
 Type **Line**. X axis: `hour`. Y series: `cons_mw`, `prod_mw`.
 ```sql
 SELECT
-    toTimeZone(ts, 'Europe/Paris')                          AS hour,
+    toTimeZone(ts, 'Europe/London')                          AS hour,
     round(sumIf(power_kw, quantity = 'CONS') / 1000, 2) AS cons_mw,
     round(sumIf(power_kw, quantity = 'PROD') / 1000, 2) AS prod_mw
-FROM gold.epci_curve
-WHERE epci_code IN (SELECT epci_code FROM ref.recipient
+FROM gold.metro_curve
+WHERE metro_code IN (SELECT metro_code FROM ref.recipient
                     WHERE positionCaseInsensitiveUTF8(name, {authority:String}) > 0)
-  AND ts >  toDateTime({day:Date}, 'Europe/Paris')
-  AND ts <= toDateTime({day:Date} + 1, 'Europe/Paris')
+  AND ts >  toDateTime({day:Date}, 'Europe/London')
+  AND ts <= toDateTime({day:Date} + 1, 'Europe/London')
 GROUP BY hour
 ORDER BY hour
 ```
-What to look for: the evening peak around 7pm (21.9 MW for Paris on the 15th), and the solar bump at noon, far below.
+What to look for: the evening peak around 7pm (22.0 MW for London on the 15th), and the solar bump at noon, far below.
 
 #### Tile 2 · Monthly heatmap
 Type **Heatmap**. X axis: `hour`. Y axis: `day`. Value: `cons_mw`.
 ```sql
 SELECT
-    toDate(ts - 1, 'Europe/Paris')        AS day,
-    toHour(ts - 900, 'Europe/Paris')      AS hour,
+    toDate(ts - 1, 'Europe/London')        AS day,
+    toHour(ts - 900, 'Europe/London')      AS hour,
     round(avg(power_kw) / 1000, 2)    AS cons_mw
-FROM gold.epci_curve
-WHERE epci_code IN (SELECT epci_code FROM ref.recipient
+FROM gold.metro_curve
+WHERE metro_code IN (SELECT metro_code FROM ref.recipient
                     WHERE positionCaseInsensitiveUTF8(name, {authority:String}) > 0)
   AND quantity = 'CONS'
 GROUP BY day, hour
@@ -95,38 +95,38 @@ ORDER BY day
 ```
 What to look for: the weekend dips, and the trend that rises through October.
 
-#### Tile 4 · Top 10 municipalities
-Type **Horizontal bar**. Category: `municipality`. Value: `cons_mwh`.
+#### Tile 4 · Top 10 wards
+Type **Horizontal bar**. Category: `ward`. Value: `cons_mwh`.
 ```sql
 SELECT
-    dictGet('ref.dict_municipality', 'name', insee_code) AS municipality,
+    dictGet('ref.dict_ward', 'name', ward_code) AS ward,
     round(sum(energy_kwh) / 1000, 1)              AS cons_mwh
-FROM gold.municipality_day_energy
-WHERE epci_code IN (SELECT epci_code FROM ref.recipient
+FROM gold.ward_day_energy
+WHERE metro_code IN (SELECT metro_code FROM ref.recipient
                     WHERE positionCaseInsensitiveUTF8(name, {authority:String}) > 0)
   AND quantity = 'CONS'
-GROUP BY insee_code
+GROUP BY ward_code
 ORDER BY cons_mwh DESC
 LIMIT 10
 ```
-What to look for: the central city on top, then municipalities that host an industrial site (C2). The name comes from a dictionary, with no JOIN.
+What to look for: Grove Green on top (233.5 MWh), then Lower Edmonton and Southall Green, all ten between 189 and 234 MWh. A home uses about 0.4 MWh in a month, so these wards are on top because they host large sites (C4, C2), such as the C2 sites of Waddon and Clapham Park. The name comes from a dictionary, with no JOIN.
 
 #### Tile 5 · Power overrun alerts
 Type **Table**. All columns.
 ```sql
 SELECT
     day,
-    municipality,
+    ward,
     segment,
     subscribed_kva,
     round(pmax_va / 1000, 1) AS pmax_kva,
     overrun_pct
 FROM gold.pmax_alerts
-WHERE epci_code IN (SELECT epci_code FROM ref.recipient
+WHERE metro_code IN (SELECT metro_code FROM ref.recipient
                     WHERE positionCaseInsensitiveUTF8(name, {authority:String}) > 0)
 ORDER BY day DESC, overrun_pct DESC
 ```
-What to look for: only C4 and C2 sites (in C5, the meter's circuit breaker trips before any overrun). 140 alerts in October for Grand Paris, 33 for Lyon.
+What to look for: only C4 and C2 sites (in C5, the meter's circuit breaker trips before any overrun). 140 alerts in October for Greater London, 33 for West Midlands.
 
 ### Step 3 · Wire up the filters
 1. Reopen each tile: **three dots** (⋮) top right, then **Edit**.
@@ -135,15 +135,15 @@ What to look for: only C4 and C2 sites (in C5, the meter's circuit breaker trips
 4. Click the **funnel** in the top bar: the **Global filters** panel opens, with an `authority` field and a `day` field.
 
 ### Step 4 · Play with the dashboard
-1. In **Global filters**, type `Paris` and `2026-10-15`: the 5 tiles show Grand Paris.
-2. Replace with `Lyon`, then `Toulouse`: the whole dashboard switches.
+1. In **Global filters**, type `London` and `2026-10-15`: the 5 tiles show Greater London.
+2. Replace with `West Midlands`, then `West Yorkshire`: the whole dashboard switches.
 3. Change the date (`2026-10-25`, the day the clocks go back: 50 half-hours): only the curve in tile 1 changes.
 
-Every change reruns the 5 queries. Each one answers in a few milliseconds: behind the typed name, it finds the territory code in `ref.recipient`, then filters gold on the start of its sorting key (`epci_code`).
+Every change reruns the 5 queries. Each one answers in a few milliseconds: behind the typed name, it finds the territory code in `ref.recipient`, then filters gold on the start of its sorting key (`metro_code`).
 
 Sharing: **Share** button at the top. A colleague also needs access to the underlying **saved queries**.
 
-Measured on the test service (3 × 64 GB), filter `Paris`: 6 to 28 ms per tile.
+Measured on the test service (3 × 64 GB), filter `London`: 6 to 28 ms per tile.
 
 ---
 
@@ -163,14 +163,14 @@ In the SQL console, paste this block and run it all (Cmd+Enter):
 -- The load curve of a local authority, between two dates
 CREATE OR REPLACE VIEW gold.api_authority_curve AS
 SELECT
-    toTimeZone(ts, 'Europe/Paris')   AS hour,
+    toTimeZone(ts, 'Europe/London')   AS hour,
     quantity,
     round(power_kw, 1)           AS power_kw,
     n_meters
-FROM gold.epci_curve
-WHERE epci_code IN (SELECT epci_code FROM ref.recipient WHERE recipient_id = {recipient_id:String})
-  AND ts >  toDateTime({start:Date}, 'Europe/Paris')
-  AND ts <= toDateTime({finish:Date} + 1, 'Europe/Paris')
+FROM gold.metro_curve
+WHERE metro_code IN (SELECT metro_code FROM ref.recipient WHERE recipient_id = {recipient_id:String})
+  AND ts >  toDateTime({start:Date}, 'Europe/London')
+  AND ts <= toDateTime({finish:Date} + 1, 'Europe/London')
 ORDER BY quantity, ts;
 
 -- The day-by-day summary of a local authority
@@ -188,7 +188,7 @@ WHERE recipient_id = {recipient_id:String}
 ORDER BY day;
 
 -- The module 7 role must be able to read the small reference table used by the view
-GRANT SELECT ON ref.recipient TO role_grand_paris;
+GRANT SELECT ON ref.recipient TO role_greater_london;
 ```
 If the console opens a **Query Variables** panel, leave it empty: the parameters are only used when calling the view.
 
@@ -207,12 +207,12 @@ SELECT recipient_id, name FROM ref.recipient ORDER BY recipient_id;
 ```
 | recipient_id | name |
 |---|---|
-| 488903 | Métropole du Grand Paris |
-| 488904 | Métropole de Lyon |
-| 488905 | Métropole Européenne de Lille |
-| 488906 | Toulouse Métropole |
-| 488907 | Bordeaux Métropole |
-| 488908 | Nantes Métropole |
+| 488903 | Greater London Authority |
+| 488904 | West Midlands Combined Authority |
+| 488905 | Greater Manchester Combined Authority |
+| 488906 | West Yorkshire Combined Authority |
+| 488907 | Liverpool City Region Combined Authority |
+| 488908 | North East Combined Authority |
 
 The available dates:
 ```sql
@@ -230,7 +230,7 @@ Expected: from `2026-10-01` to `2026-10-31`.
        finish       = {finish:Date})
    ```
 2. The **Query Variables** panel opens on the right with three fields. Enter `488903`, `2026-10-15`, `2026-10-15`.
-3. Run (Cmd+Enter). Expected: **96 rows** (48 half-hours × CONS and PROD), peak at ~21.9 MW around 7pm.
+3. Run (Cmd+Enter). Expected: **96 rows** (48 half-hours × CONS and PROD), peak at ~22.0 MW around 7pm.
 4. Click **Save** and name the query `api_authority_curve`.
 
 ### Step 4 · Create the API key [tested]
@@ -243,7 +243,7 @@ Expected: from `2026-10-01` to `2026-10-31`.
 1. Reopen the saved query `api_authority_curve`.
 2. Click **Share**, then **API Endpoint**.
 3. Choose the API key from step 4.
-4. Choose the **database role** that will run the query: **Read only**, or the `role_grand_paris` role from module 7 so that the endpoint only sees Grand Paris.
+4. Choose the **database role** that will run the query: **Read only**, or the `role_greater_london` role from module 7 so that the endpoint only sees Greater London.
 5. **CORS**: the portal's domain (leave empty for a command-line test).
 6. Confirm. The console shows the **call address**, in the form `https://queries.clickhouse.cloud/run/<identifier>`. Copy it.
 
@@ -270,9 +270,9 @@ Results obtained on a real endpoint:
 
 | Call | Result |
 |---|---|
-| GET or POST, Grand Paris (`488903`), October 15 | HTTP 200, **96 rows** (48 half-hours × CONS and PROD), ~1 s |
-| GET, Grand Paris, October 13 to 19 | HTTP 200, **672 rows** (7 days × 96) |
-| GET or POST, Lyon (`488904`), endpoint created with the `role_grand_paris` role | HTTP 200, **0 rows**: the row policy hides everything that is not Grand Paris |
+| GET or POST, Greater London (`488903`), October 15 | HTTP 200, **96 rows** (48 half-hours × CONS and PROD), ~1 s |
+| GET, Greater London, October 13 to 19 | HTTP 200, **672 rows** (7 days × 96) |
+| GET or POST, West Midlands (`488904`), endpoint created with the `role_greater_london` role | HTTP 200, **0 rows**: the row policy hides everything that is not Greater London |
 
 Pitfalls we hit:
 - **`401 Unauthorized`** (and `Key is not found` on the Cloud API): the key was not copied correctly. The Key secret starts with `4b1d`: check that this prefix did not get lost in the copy-paste. To test the key alone: `curl --user "$KEY_ID:$KEY_SECRET" https://api.clickhouse.cloud/v1/organizations` should return your organization.
@@ -315,28 +315,28 @@ In the SQL console, paste this block and run it all (Cmd+Enter):
 ALTER TABLE gold.authority_day_summary
     MODIFY COMMENT 'Daily summary per local authority receiving the metering flows (6 metro areas). One row per authority and per day of October 2026. Energy in kWh.';
 ALTER TABLE gold.authority_day_summary
-    COMMENT COLUMN recipient_id 'Recipient identifier (488903 = Métropole du Grand Paris, see ref.recipient)',
-    COMMENT COLUMN day            'Local day (Europe/Paris)',
+    COMMENT COLUMN recipient_id 'Recipient identifier (488903 = Greater London Authority, see ref.recipient)',
+    COMMENT COLUMN day            'Local day (Europe/London)',
     COMMENT COLUMN cons_kwh       'Energy consumed on the territory that day, in kWh',
     COMMENT COLUMN prod_kwh        'Energy produced (solar PV) on the territory that day, in kWh',
     COMMENT COLUMN coverage_rate 'prod_kwh / cons_kwh, between 0 and 1',
     COMMENT COLUMN n_meters          'Number of meters that sent a curve that day';
 
-ALTER TABLE gold.epci_curve
-    MODIFY COMMENT 'Load curve aggregated per EPCI, 30 min step. ts = END of the interval, in UTC: convert with toTimeZone(ts, ''Europe/Paris''). Filter on epci_code then ts (sorting key).';
-ALTER TABLE gold.epci_curve
-    COMMENT COLUMN epci_code    'SIREN code of the EPCI (200054781 = Métropole du Grand Paris). Label: dictGet(''ref.dict_epci'', ''name'', epci_code)',
+ALTER TABLE gold.metro_curve
+    MODIFY COMMENT 'Load curve aggregated per metro area (combined authority or Greater London Authority), 30 min step. ts = END of the interval, in UTC: convert with toTimeZone(ts, ''Europe/London''). Filter on metro_code then ts (sorting key).';
+ALTER TABLE gold.metro_curve
+    COMMENT COLUMN metro_code    'ONS code of the combined authority (E61000001 = Greater London Authority). Label: dictGet(''ref.dict_metro'', ''name'', metro_code)',
     COMMENT COLUMN quantity     'CONS = consumption, PROD = production',
     COMMENT COLUMN ts           'End of the 30 min interval, UTC',
     COMMENT COLUMN power_kw 'Average power over the interval, sum of the meters, in kW',
     COMMENT COLUMN n_meters       'Number of points (meters) aggregated';
 
-ALTER TABLE gold.municipality_day_energy
-    MODIFY COMMENT 'Energy per municipality, day, segment (C5, C4, C2) and quantity (CONS, PROD). Municipality label: dictGet(''ref.dict_municipality'', ''name'', insee_code).';
-ALTER TABLE gold.municipality_day_energy
+ALTER TABLE gold.ward_day_energy
+    MODIFY COMMENT 'Energy per ward, day, segment (C5, C4, C2) and quantity (CONS, PROD). Ward label: dictGet(''ref.dict_ward'', ''name'', ward_code).';
+ALTER TABLE gold.ward_day_energy
     COMMENT COLUMN segment     'C5 = households and small businesses (≤ 36 kVA), C4 = SMEs/commercial (36 to 250 kVA), C2 = HV-connected industrial sites',
     COMMENT COLUMN energy_kwh 'Energy of the day in kWh',
-    COMMENT COLUMN n_meters      'Meters of this segment in the municipality that day (add up the segments for the total)';
+    COMMENT COLUMN n_meters      'Meters of this segment in the ward that day (add up the segments for the total)';
 
 ALTER TABLE gold.pmax_alerts
     MODIFY COMMENT 'Subscribed power overruns (PMAX flow). One row per meter and per day in overrun. Only C4 and C2 can overrun (in C5 the circuit breaker trips).';
@@ -344,7 +344,7 @@ ALTER TABLE gold.pmax_alerts
     COMMENT COLUMN subscribed_kva    'Subscribed power IN FORCE on that day, in kVA',
     COMMENT COLUMN pmax_va         'Maximum power reached during the day, in VA',
     COMMENT COLUMN overrun_pct 'Overrun as a % of the subscribed power',
-    COMMENT COLUMN peak_time    'Time of the peak, Paris time';
+    COMMENT COLUMN peak_time    'Time of the peak, London time';
 
 ALTER TABLE gold.daily_completeness_kpi
     MODIFY COMMENT 'Completeness of the CURVE load curve collection at 9am the next day. Target: data_by_9am_pct >= 99.';
@@ -357,7 +357,7 @@ Check:
 ```sql
 SELECT name, comment FROM system.tables WHERE database = 'gold' AND comment != '' ORDER BY name;
 ```
-Expected: 6 commented tables (`pmax_alerts`, `epci_curve`, `municipality_day_energy`, `daily_completeness_kpi`, `meter_profile`, `authority_day_summary`). `meter_profile` is commented as soon as it is created in module 05.
+Expected: 6 commented tables (`pmax_alerts`, `metro_curve`, `ward_day_energy`, `daily_completeness_kpi`, `meter_profile`, `authority_day_summary`). `meter_profile` is commented as soon as it is created in module 05.
 
 ### Step 2 · Create and configure the agent [console]
 1. In the service sidebar, click **ClickHouse agents**, then **Launch ClickHouse agents**.
@@ -384,9 +384,9 @@ business questions in English about the collection of metering data for October 
 - Use ONLY the tables of the gold database and ref.recipient, through the ClickHouse tool.
   First read the comments of the tables and columns, and their sorting key.
 - Always filter on the start of the sorting key and add a LIMIT.
-- ts is in UTC and marks the END of a half-hour: convert with toTimeZone(ts, 'Europe/Paris').
-- Municipality and EPCI names are read with dictGet('ref.dict_municipality', 'name', insee_code)
-  and dictGet('ref.dict_epci', 'name', epci_code).
+- ts is in UTC and marks the END of a half-hour: convert with toTimeZone(ts, 'Europe/London').
+- Ward and metro area names are read with dictGet('ref.dict_ward', 'name', ward_code)
+  and dictGet('ref.dict_metro', 'name', metro_code).
 - When asked for a dashboard, a page or a report: query ClickHouse first,
   then build an interactive artifact with the REAL values you got (never made-up
   data), titles in English, units (MW, MWh, %) and 2 or 3 sentences of analysis.
@@ -403,11 +403,11 @@ Data science with the Run Code tool:
 - Curve of a territory: one row per day, with the 48 half-hours in an array:
   SELECT day, toDayOfWeek(day) >= 6 AS is_weekend,
          arrayMap(x -> x.2, arraySort(groupArray((half_hour, mw)))) AS cons_mw
-  FROM (SELECT toDate(ts - 1800, 'Europe/Paris') AS day,
-               toHour(ts - 1800, 'Europe/Paris') * 2 + intDiv(toMinute(ts - 1800, 'Europe/Paris'), 30) AS half_hour,
+  FROM (SELECT toDate(ts - 1800, 'Europe/London') AS day,
+               toHour(ts - 1800, 'Europe/London') * 2 + intDiv(toMinute(ts - 1800, 'Europe/London'), 30) AS half_hour,
                round(avg(power_kw) / 1000, 2) AS mw
-        FROM gold.epci_curve
-        WHERE epci_code = '<EPCI code>' AND quantity = 'CONS'
+        FROM gold.metro_curve
+        WHERE metro_code = '<metro_code, e.g. E61000001>' AND quantity = 'CONS'
         GROUP BY day, half_hour)
   GROUP BY day ORDER BY day
 - Meter shapes (30 per segment C5, C4, C2):
@@ -438,9 +438,9 @@ Two questions are enough to see how the agent works: it reads the comments, writ
 
 Copy each question as is into the conversation and compare the answer with the expected result. The check query (expand it) gives the real figure.
 
-**Q1** · "How much did the Métropole du Grand Paris consume in October, and what share was covered by local solar production?"
+**Q1** · "How much did the Greater London Authority consume in October, and what share was covered by local solar production?"
 
-Expected: ~10,850 MWh consumed, ~450 MWh produced, coverage ~4.1%.
+Expected: ~10,846 MWh consumed, ~458 MWh produced, coverage ~4.2%.
 
 <details><summary>Check query</summary>
 
@@ -453,17 +453,17 @@ WHERE recipient_id = '488903';
 ```
 </details>
 
-**Q2** · "At what time was Grand Paris's consumption peak on October 15, and how many MW?"
+**Q2** · "At what time was Greater London's consumption peak on October 15, and how many MW?"
 
-Expected: 7:00pm (Paris time), ~21.9 MW. The trap: ts is in UTC and marks the END of the half-hour.
+Expected: 7:00pm (London time), ~22.0 MW. The trap: ts is in UTC and marks the END of the half-hour.
 
 <details><summary>Check query</summary>
 
 ```sql
-SELECT toTimeZone(ts, 'Europe/Paris') AS hour, round(power_kw / 1000, 2) AS mw
-FROM gold.epci_curve
-WHERE epci_code = '200054781' AND quantity = 'CONS'
-  AND ts > toDateTime('2026-10-15', 'Europe/Paris') AND ts <= toDateTime('2026-10-16', 'Europe/Paris')
+SELECT toTimeZone(ts, 'Europe/London') AS hour, round(power_kw / 1000, 2) AS mw
+FROM gold.metro_curve
+WHERE metro_code = 'E61000001' AND quantity = 'CONS'
+  AND ts > toDateTime('2026-10-15', 'Europe/London') AND ts <= toDateTime('2026-10-16', 'Europe/London')
 ORDER BY power_kw DESC
 LIMIT 1;
 ```
@@ -474,7 +474,7 @@ With the **ClickHouse** and **Artifacts** tools, the agent no longer just answer
 
 For each request:
 1. Paste it into the conversation (or click the conversation starter).
-2. Watch the queries the agent runs: it should read the comments, then filter on `epci_code` or `recipient_id`.
+2. Watch the queries the agent runs: it should read the comments, then filter on `metro_code` or `recipient_id`.
 3. Compare the figures on the page with the expected result.
 4. Ask for a tweak in the same conversation: "add a filter by metro area", "switch the curve to stacked areas", "export to PDF".
 
@@ -482,9 +482,9 @@ Start with **D2** (the heatmap) then **D1** (the full dashboard): they are the m
 
 A good page: real data (never made up), units (MW, MWh, %), titles in English, and a few lines of analysis under the charts.
 
-**D1** · "Build an interactive dashboard for the Métropole du Grand Paris for October 2026: the load curve of October 15 (consumption and production), energy day by day, the top 10 municipalities, the 9am completeness KPI and the alerts of the last day. Add 3 key figures at the top of the page."
+**D1** · "Build an interactive dashboard for the Greater London Authority for October 2026: the load curve of October 15 (consumption and production), energy day by day, the top 10 wards, the 9am completeness KPI and the alerts of the last day. Add 3 key figures at the top of the page."
 
-Expected: 5 charts and 3 key figures (~10,846 MWh, ~4.1% coverage, 98.4% average KPI). For the most part, these are the tile queries from this folder's README.
+Expected: 5 charts and 3 key figures (~10,846 MWh, ~4.2% coverage, 98.4% average KPI). For the most part, these are the tile queries from this folder's README.
 
 <details><summary>Check query</summary>
 
@@ -495,17 +495,17 @@ WHERE recipient_id = '488903';
 ```
 </details>
 
-**D2** · "Make a day × hour heatmap of Grand Paris's consumption in October, then explain in 3 sentences what it shows."
+**D2** · "Make a day × hour heatmap of Greater London's consumption in October, then explain in 3 sentences what it shows."
 
-Expected: 31 rows × 24 columns, from ~8 to ~23 MW. The analysis should mention the evening peak (7pm to 8pm), the quieter weekend daytimes, and the rise at the end of the month.
+Expected: 31 rows × 24 columns, from ~8 MW at night to ~23 MW at the end-of-month peak. The analysis should mention the evening peak (6pm to 8pm) above a daytime plateau almost as high, the quieter weekend daytimes, and the rise at the end of the month.
 
 <details><summary>Check query</summary>
 
 ```sql
-SELECT toDate(ts - 1, 'Europe/Paris') AS day, toHour(ts - 900, 'Europe/Paris') AS hour,
+SELECT toDate(ts - 1, 'Europe/London') AS day, toHour(ts - 900, 'Europe/London') AS hour,
        round(avg(power_kw) / 1000, 2) AS cons_mw
-FROM gold.epci_curve
-WHERE epci_code = '200054781' AND quantity = 'CONS'
+FROM gold.metro_curve
+WHERE metro_code = 'E61000001' AND quantity = 'CONS'
 GROUP BY day, hour
 ORDER BY day, hour;
 ```
@@ -513,7 +513,7 @@ ORDER BY day, hour;
 
 **D3** · "Compare the 6 metro areas on a single page: consumption, solar production, coverage rate and number of alerts for the month. Highlight the sunniest one."
 
-Expected: a ranked table and a chart. Toulouse and Nantes on top (~5.3% coverage), Grand Paris by far the biggest consumer (~10,846 MWh) and the most alerts (140 of the month's 257).
+Expected: a ranked table and a chart. North East (5.2%) and West Yorkshire (5.1%) on top, West Midlands last (3.2%), Greater London by far the biggest consumer (~10,846 MWh) and the most alerts (140 of the month's 257).
 
 <details><summary>Check query</summary>
 
@@ -525,7 +525,7 @@ SELECT s.authority,
        any(a.alerts)                                    AS alerts
 FROM gold.authority_day_summary AS s
 INNER JOIN ref.recipient AS d ON d.recipient_id = s.recipient_id
-LEFT JOIN (SELECT epci_code, count() AS alerts FROM gold.pmax_alerts GROUP BY epci_code) AS a ON a.epci_code = d.epci_code
+LEFT JOIN (SELECT metro_code, count() AS alerts FROM gold.pmax_alerts GROUP BY metro_code) AS a ON a.metro_code = d.metro_code
 GROUP BY s.authority
 ORDER BY coverage_pct DESC;
 ```
@@ -533,7 +533,7 @@ ORDER BY coverage_pct DESC;
 
 **D4** · "Prepare the October 30 operations report for the team lead: completeness at 9am, files that arrived late this month, overrun alerts of the day, and 3 recommendations. Lay it out as a printable page."
 
-Expected: the KPI for the 30th above 99%, the 6 days below target with their late files (arrived at 2pm), 6 C4 alerts on the 30th, and concrete recommendations (chase the late batches, contact the sites that overrun).
+Expected: the KPI for the 30th above 99%, the 6 days below target with their late files (arrived at 2pm), 6 alerts on the 30th (3 of them in Greater London, all C4), and concrete recommendations (chase the late batches, contact the sites that overrun).
 
 <details><summary>Check query</summary>
 
@@ -544,12 +544,12 @@ SELECT day, data_by_9am_pct FROM gold.daily_completeness_kpi WHERE data_by_9am_p
 
 **D5** · "Which sites regularly exceed their subscribed power? Show them on a chart (average overrun and number of days) and say which ones should increase their power."
 
-Expected: about twenty sites, almost all C4, with 3 or 4 overrun days (Lyon, Vanves, Saint-Maurice and Paris on top with 4 days). A good answer: the agent points out that in C5 the circuit breaker trips before any overrun.
+Expected: about twenty sites, almost all C4, with 3 or 4 overrun days (Handsworth, Greenhill, Coulsdon Town and Sanderstead on top with 4 days). A good answer: the agent points out that in C5 the circuit breaker trips before any overrun.
 
 <details><summary>Check query</summary>
 
 ```sql
-SELECT meter_id, any(municipality) AS municipality, any(segment) AS segment, count() AS overrun_days,
+SELECT meter_id, any(ward) AS ward, any(segment) AS segment, count() AS overrun_days,
        round(avg(overrun_pct), 1) AS avg_overrun_pct, max(subscribed_kva) AS subscribed_kva
 FROM gold.pmax_alerts
 GROUP BY meter_id
@@ -559,18 +559,18 @@ LIMIT 20;
 ```
 </details>
 
-**D6** · "Make a page for a Lyon elected official: 4 key figures for the month, the curve of a typical weekday and of a weekend day, all readable by a non-specialist."
+**D6** · "Make a page for a West Midlands elected official: 4 key figures for the month, the curve of a typical weekday and of a weekend day, all readable by a non-specialist."
 
-Expected: figures for the Métropole de Lyon (~2,140 MWh, ~3.4% solar), two curves compared (the weekend lower during the day), and a jargon-free text.
+Expected: figures for the West Midlands Combined Authority (~2,140 MWh, ~3.2% solar, 33 alerts), two curves compared (the weekend lower during the day), and a jargon-free text.
 
 <details><summary>Check query</summary>
 
 ```sql
-SELECT if(toDayOfWeek(toDate(ts - 1, 'Europe/Paris')) >= 6, 'weekend', 'weekday') AS day_type,
-       toHour(ts - 900, 'Europe/Paris') AS hour,
+SELECT if(toDayOfWeek(toDate(ts - 1, 'Europe/London')) >= 6, 'weekend', 'weekday') AS day_type,
+       toHour(ts - 900, 'Europe/London') AS hour,
        round(avg(power_kw) / 1000, 2) AS cons_mw
-FROM gold.epci_curve
-WHERE epci_code = '200046977' AND quantity = 'CONS'
+FROM gold.metro_curve
+WHERE metro_code = 'E47000007' AND quantity = 'CONS'
 GROUP BY day_type, hour
 ORDER BY day_type, hour;
 ```
@@ -602,7 +602,7 @@ One sentence is enough: the method is in the instructions.
 
 | | Request to paste | Expected result |
 |---|---|---|
-| **ML1 · Forecast** | "Forecast the Grand Paris load curve for Saturday October 31 from October 1 to 30, and compare it with reality." | model **~2.3%** error, previous Saturday ~3.3%, previous day ~47%. Actual peak at 7:30pm, 22.0 MW |
+| **ML1 · Forecast** | "Forecast the Greater London load curve for Saturday October 31 from October 1 to 30, and compare it with reality." | model **~2.3%** error, previous Saturday ~3.3%, previous day ~47%. Actual peak at 7:30pm, 22.0 MW |
 | **ML2 · Segmentation** | "Group the meters into 3 clusters based on the shape of their consumption, cross these clusters with the C5, C4 and C2 segments, and show me each cluster." | 90 meters (30 per segment). 3 clusters: **households** (25 residential C5, evening peak), **businesses** (the 30 C4 and 5 small C5 businesses, plateau from 8am to 7pm), **industry** (the 30 C2, high base load, active at weekends) |
 | **ML3 · Profiling** | "Show me that we can rebuild a meter's curve from its energy alone, using the typical shape of its cluster." | **~2.3%** error with the typical shape, in every segment, versus ~46% with a flat curve |
 

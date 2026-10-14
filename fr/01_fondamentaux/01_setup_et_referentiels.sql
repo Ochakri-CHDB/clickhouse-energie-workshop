@@ -70,7 +70,7 @@ FROM url('https://geo.api.gouv.fr/communes?fields=code,nom,codeDepartement,codeR
          'code String, nom String, codeDepartement String, codeRegion String, codeEpci Nullable(String), population Nullable(UInt32), centre Tuple(type String, coordinates Array(Float64))');
 -- Mesuré : 471 ms · 34 969 lignes lues (5,9 Mo) · 34 969 lignes écrites
 --  Plan B si l'API ne répond pas : le même fichier est dans le repo
---  INSERT INTO ref.commune SELECT * FROM url('https://raw.githubusercontent.com/Ochakri-CHDB/clickhouse-energie-workshop/main/data/communes.csv', CSVWithNames);
+--  INSERT INTO ref.commune SELECT * FROM url('https://raw.githubusercontent.com/Ochakri-CHDB/clickhouse-energie-workshop/main/data/fr/communes.csv', CSVWithNames);
 
 CREATE OR REPLACE TABLE ref.departement (code_dept String, nom String, code_region String) ENGINE = MergeTree ORDER BY code_dept;
 INSERT INTO ref.departement SELECT code, nom, codeRegion

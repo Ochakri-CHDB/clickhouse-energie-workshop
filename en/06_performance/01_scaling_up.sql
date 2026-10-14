@@ -41,7 +41,7 @@ ORDER BY (quantity, meter_id, ts);   -- lowest to highest cardinality: 2 values,
 CREATE OR REPLACE VIEW simulator.xl_points AS
 WITH
     sim_meter_id(intDiv(number, 1488))                                                        AS id,
-    toDateTime('2026-10-01 00:30:00', 'Europe/Paris') + toIntervalSecond(1800 * (number % 1488)) AS t,
+    toDateTime('2026-10-01 00:30:00', 'Europe/London') + toIntervalSecond(1800 * (number % 1488)) AS t,
     dictGet('simulator.dict_meter', ('profile', 'power_kva'), id)                         AS a
 SELECT
     id                              AS meter_id,
@@ -56,21 +56,21 @@ FROM numbers_mt({start:UInt64} * 1488, {n:UInt64} * 1488);
 --  max_insert_threads = 8: 8 parallel write streams on the replica.
 --  An INSERT runs on ONE replica: its speed depends on that replica's cores.
 INSERT INTO silver.load_curve_xl SELECT * FROM simulator.xl_points(start = 0,      n = 125000) SETTINGS max_insert_threads = 8;
--- Measured: 8.38 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.1 GB memory
+-- Measured: 8.4 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.2 GB memory
 INSERT INTO silver.load_curve_xl SELECT * FROM simulator.xl_points(start = 125000, n = 125000) SETTINGS max_insert_threads = 8;
--- Measured: 8.3 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.2 GB memory
+-- Measured: 8.45 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.2 GB memory
 INSERT INTO silver.load_curve_xl SELECT * FROM simulator.xl_points(start = 250000, n = 125000) SETTINGS max_insert_threads = 8;
--- Measured: 8.7 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.1 GB memory
+-- Measured: 8.33 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.1 GB memory
 INSERT INTO silver.load_curve_xl SELECT * FROM simulator.xl_points(start = 375000, n = 125000) SETTINGS max_insert_threads = 8;
--- Measured: 8.31 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.2 GB memory
+-- Measured: 8.33 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.1 GB memory
 INSERT INTO silver.load_curve_xl SELECT * FROM simulator.xl_points(start = 500000, n = 125000) SETTINGS max_insert_threads = 8;
--- Measured: 8.18 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.2 GB memory
+-- Measured: 8.4 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.1 GB memory
 INSERT INTO silver.load_curve_xl SELECT * FROM simulator.xl_points(start = 625000, n = 125000) SETTINGS max_insert_threads = 8;
--- Measured: 8.66 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.1 GB memory
+-- Measured: 8.34 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.1 GB memory
 INSERT INTO silver.load_curve_xl SELECT * FROM simulator.xl_points(start = 750000, n = 125000) SETTINGS max_insert_threads = 8;
--- Measured: 8.23 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.1 GB memory
+-- Measured: 8.11 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.1 GB memory
 INSERT INTO silver.load_curve_xl SELECT * FROM simulator.xl_points(start = 875000, n = 125000) SETTINGS max_insert_threads = 8;
--- Measured: 8.22 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.1 GB memory
+-- Measured: 8.21 s · 186 M rows read (1.4 GB) · 186 M rows written · 1.2 GB memory
 -- What to look for: at the bottom of the console, the rows/s of each batch. Every point is
 -- computed (dictGet + sim_cons_w), sorted by the ORDER BY, compressed, then written to object storage.
 

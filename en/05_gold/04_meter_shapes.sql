@@ -45,35 +45,35 @@ SELECT
 FROM
 (
     SELECT meter_id,
-           if(toDayOfWeek(ts - 1, 0, 'Europe/Paris') >= 6, 'weekend', 'weekday') AS day_type,
-           toHour(ts - 900, 'Europe/Paris') AS hour,
+           if(toDayOfWeek(ts - 1, 0, 'Europe/London') >= 6, 'weekend', 'weekday') AS day_type,
+           toHour(ts - 900, 'Europe/London') AS hour,
            avg(value_w) AS cons_w
     FROM silver.load_curve FINAL
     WHERE quantity = 'CONS'
     GROUP BY meter_id, day_type, hour
 )
 GROUP BY meter_id;
--- Measured: 817 ms · 30.1 M rows read (744.7 MB) · 19,999 rows written · 544.1 MB of memory
+-- Measured: 423 ms · 30.5 M rows read (727.6 MB) · 20,000 rows written · 446 MB memory
 
 
 -- STEP 3 · Comments for the agent (module 8)
 ALTER TABLE gold.meter_profile
     MODIFY COMMENT 'Average consumption shape of each meter in October 2026, for data science. One row per meter.';
--- Measured: 74 ms
+-- Measured: 80 ms
 ALTER TABLE gold.meter_profile
     COMMENT COLUMN segment       'C5 (up to 36 kVA), C4 (36 to 250 kVA), C2 (connected at medium voltage, HTA)',
     COMMENT COLUMN profile        'Declared profile: RES (residential), PRO (professional), ENT (business, industry)',
     COMMENT COLUMN avg_cons_w   'Average power of the meter over the month, in W',
-    COMMENT COLUMN weekday_shape '24 values, from 0h to 23h (Paris time), weekday, divided by avg_cons_w',
-    COMMENT COLUMN weekend_shape '24 values, from 0h to 23h (Paris time), weekend day, divided by avg_cons_w';
--- Measured: 79 ms
+    COMMENT COLUMN weekday_shape '24 values, from 0h to 23h (London time), weekday, divided by avg_cons_w',
+    COMMENT COLUMN weekend_shape '24 values, from 0h to 23h (London time), weekend day, divided by avg_cons_w';
+-- Measured: 66 ms
 
 
 -- STEP 4 · The average shapes by profile
 SELECT profile, count() AS meters, arrayMap(x -> round(x, 1), any(weekday_shape)) AS weekday_example
 FROM gold.meter_profile
 GROUP BY profile;
--- Measured: 8 ms · 19,999 rows read (2 MB)
+-- Measured: 7 ms · 20,000 rows read (2 MB)
 -- What to look for: the evening peak of households (RES), the 8am-7pm plateau of
 -- professionals (PRO), the high base load of industry (ENT).
 
@@ -82,7 +82,7 @@ SELECT segment, profile, count() AS meters
 FROM (SELECT segment, profile FROM gold.meter_profile ORDER BY cityHash64(meter_id) LIMIT 30 BY segment)
 GROUP BY segment, profile
 ORDER BY segment, profile;
--- Measured: 4 ms · 19,999 rows read (195.4 KB)
+-- Measured: 3 ms · 20,000 rows read (195.4 KB)
 -- What to look for: LIMIT 30 BY segment keeps 30 rows per segment value.
 -- The C5 segment mixes households and small professionals.
 

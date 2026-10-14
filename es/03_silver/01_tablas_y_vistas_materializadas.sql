@@ -23,7 +23,7 @@ CREATE OR REPLACE TABLE silver.curva_carga
     paso_min       UInt8,
     etapa  LowCardinality(String),                        -- BRUTO / CORREGIDO
     version       DateTime64(3, 'UTC') CODEC(Delta, ZSTD(1)),    -- llegada del fichero: gana la más reciente
-    dia          Date MATERIALIZED toDate(ts - 1, 'Europe/Paris') -- calculado al insertar: el día local (ts - 1 porque las 00:00 cierran el día anterior)
+    dia          Date MATERIALIZED toDate(ts - 1, 'Europe/Madrid') -- calculado al insertar: el día local (ts - 1 porque las 00:00 cierran el día anterior)
 )
 ENGINE = ReplacingMergeTree(version)
 PARTITION BY toYYYYMM(ts)                -- una partición por mes: pocas y acotadas

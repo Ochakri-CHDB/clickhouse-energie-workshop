@@ -25,8 +25,8 @@ flowchart LR
     subgraph SRC["Sources"]
         direction TB
         SIM["SQL simulator<br/>UDFs + 3 parameterized views<br/>that build the files"]
-        GEO["geo.api.gouv.fr<br/>read with url()"]
-        REF["ref.*<br/>municipalities, meters, kVA"]
+        GEO["ONS + Nomis open data<br/>read with url()"]
+        REF["ref.*<br/>wards, meters, kVA"]
         DICT["5 dictionaries<br/>dictGet in silver and gold"]
     end
     subgraph BRZ["Bronze"]
@@ -41,16 +41,16 @@ flowchart LR
     subgraph GLD["Gold"]
         COL["meter_day_collection<br/>AggregatingMergeTree, real time"]
         KPI["daily_completeness_kpi<br/>refreshed at 9am"]
-        CE["epci_curve<br/>every 10 min"]
-        ECJ["municipality_day_energy<br/>every 10 min"]
-        SYN["authority_day_summary<br/>DEPENDS ON municipality_day_energy"]
+        CE["metro_curve<br/>every 10 min"]
+        ECJ["ward_day_energy<br/>every 10 min"]
+        SYN["authority_day_summary<br/>DEPENDS ON ward_day_energy"]
         AL["pmax_alerts<br/>power at date"]
         REC["v_reconciliation<br/>daily energy vs curve"]
     end
     subgraph EXP["Exposure"]
         APIC["api_authority_curve<br/>parameterized view"]
         APIS["api_authority_summary<br/>parameterized view"]
-        RP["row policy<br/>role_grand_paris"]
+        RP["row policy<br/>role_greater_london"]
     end
     subgraph USG["Uses"]
         DASH["Dashboard<br/>5 tiles, 6 to 28 ms"]
@@ -82,11 +82,11 @@ flowchart LR
 
 | Layer | Objects | Key takeaway |
 |---|---|---|
-| **Sources** | SQL simulator (`sim_*` functions, 3 parameterized views), `geo.api.gouv.fr`, `ref.*` reference tables, 5 dictionaries | everything is generated in SQL, deterministically |
+| **Sources** | SQL simulator (`sim_*` functions, 3 parameterized views), ONS and Nomis open data, `ref.*` reference tables, 5 dictionaries | everything is generated in SQL, deterministically |
 | **Bronze** | `bronze.raw_flows` | 1 row = 1 raw JSON file (CURVE, ENERGY, PMAX), compressed ×15, purged after 90 days |
 | **Silver** | `load_curve`, `rejects`, `daily_pmax`, `daily_energy` | 4 materialized views unfold the JSON on every INSERT; ReplacingMergeTree keeps the latest version |
-| **Gold** | `meter_day_collection`, `daily_completeness_kpi`, `epci_curve`, `municipality_day_energy`, `authority_day_summary`, `pmax_alerts`, `v_reconciliation` | 1 real-time materialized view, 5 refreshable materialized views (10 min or 9am), 1 plain view |
-| **Exposure** | `api_authority_curve`, `api_authority_summary`, row policies of the `role_grand_paris` role | the portal only sends parameters; per-territory security lives in the database |
+| **Gold** | `meter_day_collection`, `daily_completeness_kpi`, `metro_curve`, `ward_day_energy`, `authority_day_summary`, `pmax_alerts`, `v_reconciliation` | 1 real-time materialized view, 5 refreshable materialized views (10 min or 9am), 1 plain view |
+| **Exposure** | `api_authority_curve`, `api_authority_summary`, row policies of the `role_greater_london` role | the portal only sends parameters; per-territory security lives in the database |
 | **Uses** | dashboard, Query API endpoint, ClickHouse Agents | everything reads gold, in a few milliseconds |
 
 Around the main flow: the 1.5 billion point table (module 06), a month replayed and published with REPLACE PARTITION (module 07), observability through the `system.*` tables.
@@ -125,7 +125,7 @@ With this configuration, you will get the durations noted in the comments (`Meas
 |---|---|---|---|
 | 0:00 | Introduction | The platform: ClickHouse Cloud, separate storage and compute, ClickPipes, Agents | 15 min |
 | 0:15 | **00** First steps | From `numbers()` to a daily energy file in JSON, then 1 million measurements in one query | 15 min |
-| 0:30 | **01** Fundamentals | MergeTree, sparse index, compression. The 34,969 municipalities read live from geo.api.gouv.fr, 1 million meters | 25 min |
+| 0:30 | **01** Fundamentals | MergeTree, sparse index, compression. The 7,588 wards of England and Wales read live from ONS and Nomis open data, 1 million meters | 25 min |
 | 0:55 | **02** Bronze | The metering flow simulator (UDFs, parameterized views) and 1,800 raw JSON files, 1.7 GB | 25 min |
 | 1:20 | *Break* | | 10 min |
 | 1:30 | **03** Silver | Materialized views, triple ARRAY JOIN, backfill, resends, corrections, daylight saving time | 35 min |
@@ -188,7 +188,7 @@ Everything from scratch, reset included: about 4 minutes.
 
 The detailed results of each file are in `logs/`. Modules depend on the previous ones: to resume at module 05, modules 00 to 04 must have run.
 
-[`reset.sql`](reset.sql) drops **only** what the workshop created: the `ref`, `bronze`, `silver`, `gold`, `simulator` databases, the `sim_*` functions, the `dict_reader` user, the `role_grand_paris` role and its row policies.
+[`reset.sql`](reset.sql) drops **only** what the workshop created: the `ref`, `bronze`, `silver`, `gold`, `simulator` databases, the `sim_*` functions, the `dict_reader` user, the `role_greater_london` role and its row policies.
 
 ---
 
@@ -204,9 +204,12 @@ Everything that shows up in the slides and in the repo, in one line.
 | **CONS · PROD** | energy consumed, and energy produced (solar panels) | **FINAL** | reads the latest version of each row, no duplicates | **CDC (database)** | Change Data Capture: continuous copy of a database's changes |
 | **C5 · C4 · C2** | segments: up to 36 kVA, 36 to 250 kVA, connected at medium voltage (HTA) | **TTL** | time to live: automatic purge of rows that are too old | **OTel** | OpenTelemetry: standard for collecting logs, metrics, traces |
 | **RES · PRO · ENT** | profiles: residential, professional, enterprise | **UDF** | user-defined SQL function, reusable everywhere | **MCP** | Model Context Protocol: plugs an AI agent into tools and data |
-| **EPCI** | intercommunal authority (metropolis, urban area): the perimeter of a local authority | **ASOF JOIN** | join on the closest value, for example at a date | **KPI** | key indicator, for example 99% of data received by 9am |
-| **INSEE** | official code of a municipality, 5 characters | **ZSTD** | Zstandard: the algorithm that compresses columns | **BI** | business intelligence: dashboards and reports |
-| **VA · W · Wh** | apparent power, active power, energy. k, M, G: thousand, million, billion | **UTC** | universal time, no daylight saving: the storage format | **GDPR** | European regulation on personal data protection |
+| **Ward** | smallest electoral area, about 8,000 inhabitants on average: the finest level of the reference data | **ASOF JOIN** | join on the closest value, for example at a date | **KPI** | key indicator, for example 99% of data received by 9am |
+| **District** | local authority district (a council), groups wards: 318 in England and Wales | **ZSTD** | Zstandard: the algorithm that compresses columns | **BI** | business intelligence: dashboards and reports |
+| **VA · W · Wh** | apparent power, active power, energy. k, M, G: thousand, million, billion | **UTC** | universal time, no daylight saving: the storage format | **GDPR** | regulation on personal data protection (UK GDPR in the United Kingdom) |
+| **Combined authority** | group of neighbouring districts led by a mayor (Greater Manchester, West Midlands…). The 15 of them plus the Greater London Authority (33 boroughs) are the 16 "metro areas" of the workshop | | | | |
+| **ONS code** | official 9-character code of an area, for example E05013748 for a ward | | | | |
+| **BASE · HPHC · TEMPO** | simulated tariff codes: flat rate, peak / off-peak, dynamic | | | | |
 
 ---
 
@@ -214,7 +217,7 @@ Everything that shows up in the slides and in the repo, in one line.
 
 ```
 00_introduction/      first steps
-01_fundamentals/      basics, MergeTree, reference data (INSEE municipalities, meters)
+01_fundamentals/      basics, MergeTree, reference data (ONS wards, meters)
 02_bronze/            metering flow simulator, JSON ingestion
 03_silver/            materialized views, duplicates, corrections, daylight saving time
 04_dictionaries/      in-memory enrichment
@@ -222,7 +225,7 @@ Everything that shows up in the slides and in the repo, in one line.
 06_performance/       1.5 billion points, measured optimizations
 07_operations/        replay, TTL, security, observability
 08_dashboards_agent/  step-by-step README: dashboard, API, ClickHouse Agents (no SQL file)
-../data/              backup INSEE reference data (if geo.api.gouv.fr does not answer)
+../data/uk/           backup ONS and Nomis reference data (if the open data portals do not answer)
 run_all.sh, reset.sql full run and cleanup
 RESULTS.md            numbers measured on the test service, module by module
 ```
