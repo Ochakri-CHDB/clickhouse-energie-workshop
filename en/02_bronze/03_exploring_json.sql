@@ -15,7 +15,7 @@ SELECT
 FROM bronze.raw_flows
 WHERE flow_code = 'CURVE'
 LIMIT 5;
--- Measured: 80 ms · 64 files read (148.1 MB of JSON) · 316.2 MB of memory
+-- Measured: 266 ms · 64 files read (147.9 MB of JSON) · 347 MB of memory
 
 
 -- STEP 2 · The native JSON type: ClickHouse discovers the structure on its own
@@ -27,7 +27,7 @@ SELECT JSONAllPathsWithTypes(payload::JSON) AS detected_structure
 FROM bronze.raw_flows
 WHERE flow_code = 'PMAX'
 LIMIT 1;
--- Measured: 215 ms · 600 files read (144.9 MB of JSON) · 406.1 MB of memory
+-- Measured: 117 ms · 600 files read (142.6 MB of JSON) · 403.8 MB of memory
 
 --  You navigate with dots, like in JavaScript.
 --  .:`Array(JSON)` states the expected type for an array of objects.
@@ -36,7 +36,7 @@ SELECT
     arrayJoin(j.measurements.:`Array(JSON)`).meterId                AS meter_id
 FROM (SELECT payload::JSON AS j FROM bronze.raw_flows WHERE flow_code = 'PMAX' LIMIT 1)
 LIMIT 5;
--- Measured: 75 ms · 600 files read (144.9 MB of JSON) · 406.2 MB of memory
+-- Measured: 71 ms · 600 files read (142.6 MB of JSON) · 403.9 MB of memory
 
 
 -- STEP 3 · Typed extraction: the key to moving to silver
@@ -56,7 +56,7 @@ FROM
 ARRAY JOIN measurements AS m
 ARRAY JOIN m.quantity AS g
 LIMIT 10;
--- Measured: 21 ms · 64 files read (148.1 MB of JSON) · 305.8 MB of memory
+-- Measured: 24 ms · 64 files read (147.9 MB of JSON) · 315.2 MB of memory
 
 
 -- STEP 4 · How much do our INSERTs cost? (the query log)

@@ -18,7 +18,7 @@ ARRAY JOIN m.magnitud AS g
 ARRAY JOIN g.puntos   AS p
 WHERE codigo_flujo = 'CURVA' AND toUInt32OrNull(p.v) IS NOT NULL
 SETTINGS max_block_size = 4;
--- Medido: 18,1 s · 600 ficheros leídos (1,3 GB de JSON) · 29,9 M filas escritas · 1,7 GB de memoria
+-- Medido: 18,2 s · 600 ficheros leídos (1,4 GB de JSON) · 29,9 M filas escritas · 1,7 GB de memoria
 -- Qué observar: ~30 millones de puntos extraídos del JSON. Mira la velocidad en filas/s
 -- en la parte inferior de la consola: todo el parsing del JSON se hace en la base de datos.
 
@@ -30,7 +30,7 @@ ARRAY JOIN m.magnitud AS g
 ARRAY JOIN g.puntos   AS p
 WHERE codigo_flujo = 'CURVA' AND toUInt32OrNull(p.v) IS NULL
 SETTINGS max_block_size = 4;
--- Medido: 2,67 s · 600 ficheros leídos (1,3 GB de JSON) · 8 754 filas escritas · 1 018,2 MB de memoria
+-- Medido: 2,68 s · 600 ficheros leídos (1,4 GB de JSON) · 8 754 filas escritas · 985,1 MB de memoria
 
 INSERT INTO silver.energia_dia
 SELECT toUInt64(m.idContador), g.magnitudNegocio, toDate(p.d), toDecimal64(p.v, 2), m.etapa, ingested_at
@@ -39,7 +39,7 @@ ARRAY JOIN JSONExtract(payload, 'medidas', 'Array(Tuple(idContador String, etapa
 ARRAY JOIN m.magnitud AS g
 ARRAY JOIN g.puntos   AS p
 WHERE codigo_flujo = 'ENERGIA';
--- Medido: 755 ms · 600 ficheros leídos (168,3 MB de JSON) · 625 080 filas escritas · 327,4 MB de memoria
+-- Medido: 797 ms · 600 ficheros leídos (170 MB de JSON) · 625 080 filas escritas · 336,4 MB de memoria
 
 INSERT INTO silver.pmax_dia
 SELECT toUInt64(m.idContador), toDate(m.periodo.fechaInicio), toUInt32(p.v), parseDateTimeBestEffort(p.d, 'UTC'), ingested_at
@@ -48,7 +48,7 @@ ARRAY JOIN JSONExtract(payload, 'medidas', 'Array(Tuple(idContador String, perio
 ARRAY JOIN m.magnitud AS g
 ARRAY JOIN g.puntos   AS p
 WHERE codigo_flujo = 'PMAX';
--- Medido: 675 ms · 600 ficheros leídos (144,9 MB de JSON) · 600 000 filas escritas · 407,3 MB de memoria
+-- Medido: 852 ms · 600 ficheros leídos (147,2 MB de JSON) · 600 000 filas escritas · 408,6 MB de memoria
 
 SELECT
     (SELECT count() FROM silver.curva_carga) AS puntos_curva,
@@ -62,15 +62,15 @@ SELECT
 --  Insertamos SOLO en bronze. Mira cómo silver se llena solo.
 --  Se dispara toda la cadena: bronze → MV → silver → MV (módulo 5) → gold.
 SELECT count() AS puntos_antes FROM silver.curva_carga WHERE dia = '2026-10-31';
--- Medido: 65 ms · 29,9 M filas leídas (57,1 MB)
+-- Medido: 63 ms · 29,9 M filas leídas (57,1 MB)
 
 INSERT INTO bronze.flujos_brutos
 SELECT * FROM simulador.ficheros_curva(inicio = 600, n = 20)
 SETTINGS max_block_size = 2;
--- Medido: 5,95 s · 100 ficheros leídos (183,8 MB de JSON) · 996 328 filas escritas · 306,1 MB de memoria
+-- Medido: 5,95 s · 100 ficheros leídos (184,1 MB de JSON) · 996 328 filas escritas · 306,1 MB de memoria
 
 SELECT count() AS puntos_despues FROM silver.curva_carga WHERE dia = '2026-10-31';
--- Medido: 65 ms · 25 M filas leídas (47,8 MB)
+-- Medido: 62 ms · 25 M filas leídas (47,8 MB)
 -- Qué observar: el número de puntos del día 31 pasa de 0 a ~1 millón.
 -- Venga de donde venga el INSERT en bronze, las vistas materializadas lo propagan.
 

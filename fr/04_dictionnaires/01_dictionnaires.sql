@@ -92,14 +92,14 @@ SELECT
 --  Prenons un PRM qui a changé de puissance en octobre
 SELECT id_prm, valid_from, valid_to, puissance_kva
 FROM ref.prm_history
-WHERE id_prm IN (SELECT id_prm FROM ref.prm_history WHERE valid_to = '2026-10-14' LIMIT 1)
+WHERE id_prm IN (SELECT id_prm FROM ref.prm_history WHERE valid_to = '2026-10-14' ORDER BY id_prm LIMIT 1)
 ORDER BY valid_from;
 -- Mesuré : 9 ms · 991 232 lignes lues (9,5 Mo)
 
 SELECT
     jour,
     dictGet('ref.dict_puissance_asof', 'puissance_kva', p.id_prm, jour) AS kva_a_date
-FROM (SELECT id_prm FROM ref.prm_history WHERE valid_to = '2026-10-14' LIMIT 1) AS p
+FROM (SELECT id_prm FROM ref.prm_history WHERE valid_to = '2026-10-14' ORDER BY id_prm LIMIT 1) AS p
 CROSS JOIN (SELECT toDate('2026-10-12') + number AS jour FROM numbers(5)) AS j;
 -- Mesuré : 8 ms · 983 045 lignes lues (9,4 Mo)
 -- À observer : le 15, la nouvelle puissance s'applique. Indispensable pour les

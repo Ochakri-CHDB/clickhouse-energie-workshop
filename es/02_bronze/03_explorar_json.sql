@@ -15,7 +15,7 @@ SELECT
 FROM bronze.flujos_brutos
 WHERE codigo_flujo = 'CURVA'
 LIMIT 5;
--- Medido: 80 ms · 64 ficheros leídos (148,1 MB de JSON) · 316,2 MB de memoria
+-- Medido: 263 ms · 64 ficheros leídos (148,3 MB de JSON) · 354 MB de memoria
 
 
 -- PASO 2 · El tipo JSON nativo: ClickHouse descubre la estructura él solo
@@ -27,7 +27,7 @@ SELECT JSONAllPathsWithTypes(payload::JSON) AS estructura_detectada
 FROM bronze.flujos_brutos
 WHERE codigo_flujo = 'PMAX'
 LIMIT 1;
--- Medido: 215 ms · 600 ficheros leídos (144,9 MB de JSON) · 406,1 MB de memoria
+-- Medido: 116 ms · 600 ficheros leídos (147,1 MB de JSON) · 408,4 MB de memoria
 
 --  Se navega con puntos, como en JavaScript.
 --  .:`Array(JSON)` indica el tipo esperado para un array de objetos.
@@ -36,7 +36,7 @@ SELECT
     arrayJoin(j.medidas.:`Array(JSON)`).idContador                AS id_contador
 FROM (SELECT payload::JSON AS j FROM bronze.flujos_brutos WHERE codigo_flujo = 'PMAX' LIMIT 1)
 LIMIT 5;
--- Medido: 75 ms · 600 ficheros leídos (144,9 MB de JSON) · 406,2 MB de memoria
+-- Medido: 72 ms · 600 ficheros leídos (147,1 MB de JSON) · 408,5 MB de memoria
 
 
 -- PASO 3 · Extracción tipada: la clave para pasar a silver
@@ -56,7 +56,7 @@ FROM
 ARRAY JOIN medidas AS m
 ARRAY JOIN m.magnitud AS g
 LIMIT 10;
--- Medido: 21 ms · 64 ficheros leídos (148,1 MB de JSON) · 305,8 MB de memoria
+-- Medido: 21 ms · 64 ficheros leídos (148,3 MB de JSON) · 324,6 MB de memoria
 
 
 -- PASO 4 · ¿Cuánto cuestan nuestros INSERT? (el registro de consultas)

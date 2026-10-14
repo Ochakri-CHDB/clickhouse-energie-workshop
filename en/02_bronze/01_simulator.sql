@@ -5,10 +5,10 @@
 --  SQL functions (UDFs) that reproduce real-world behavior:
 --    · residential : morning peak, big evening peak
 --    · commercial  : 8am-7pm plateau on weekdays, trough on weekends
---    · solar       : bell curve, different weather per department
+--    · solar       : bell curve, different weather per district
 --    · industry    : high base load, also runs on weekends
 --    · October     : it gets colder and colder, consumption goes up
---  Target orders of magnitude (French fleet, October): a household ~12 kWh/day,
+--  Target orders of magnitude (typical distribution fleet, October): a household ~12 kWh/day,
 --  a C2 site loaded at ~25% of its power, weekend ≈ 0.7 × weekday,
 --  energy RES / PRO / ENT ≈ 37 / 34 / 28%.
 --  Everything is deterministic: everyone gets exactly the same numbers.
@@ -27,7 +27,7 @@ CREATE OR REPLACE FUNCTION sim_random AS (a, b, c) ->
     (cityHash64(a, b, c) % 1000000) / 1000000.;                -- deterministic "random" between 0 and 1
 
 CREATE OR REPLACE FUNCTION sim_local_hour AS (ts) ->
-    toHour(ts - 900, 'Europe/Paris') + toMinute(ts - 900, 'Europe/Paris') / 60;   -- middle of the interval
+    toHour(ts - 900, 'Europe/London') + toMinute(ts - 900, 'Europe/London') / 60;   -- middle of the interval
 
 CREATE OR REPLACE FUNCTION sim_utc_hour AS (ts) ->
     toHour(ts - 900, 'UTC') + toMinute(ts - 900, 'UTC') / 60;
@@ -45,33 +45,33 @@ CREATE OR REPLACE FUNCTION sim_cons_w AS (id, profile, kva, ts) ->
                 (0.30 + 0.55 * exp(-pow(sim_local_hour(ts) - 7.5, 2) / 1.5)
                       + 1.00 * exp(-pow(sim_local_hour(ts) - 20.0, 2) / 3.0)
                       + 0.15 * exp(-pow(sim_local_hour(ts) - 13.0, 2) / 2.0))
-                * if(toDayOfWeek(ts, 0, 'Europe/Paris') >= 6, 1.10, 1.0),         -- a bit more on weekends
-            toDayOfWeek(ts, 0, 'Europe/Paris') >= 6,
+                * if(toDayOfWeek(ts, 0, 'Europe/London') >= 6, 1.10, 1.0),         -- a bit more on weekends
+            toDayOfWeek(ts, 0, 'Europe/London') >= 6,
                 if(profile = 'ENT', 0.55, 0.30),                                   -- weekend: industry partly keeps running
             if(profile = 'ENT', 0.55, 0.30)
                 + if(profile = 'ENT', 0.65, 0.90)
                   / ((1 + exp(-2 * (sim_local_hour(ts) - 8))) * (1 + exp(2 * (sim_local_hour(ts) - 19)))))  -- 8am-7pm plateau
-        * (1 + if(profile = 'RES', 0.008, 0.003) * toDayOfMonth(ts, 'Europe/Paris'))  -- October gets colder: household heating weighs the most
+        * (1 + if(profile = 'RES', 0.008, 0.003) * toDayOfMonth(ts, 'Europe/London'))  -- October gets colder: household heating weighs the most
         * (0.75 + 0.50 * sim_random(id, ts, 'bruit'))                               -- noise
     ));
 
 --  sim_prod_w: solar production = peak power × sun × weather of the day.
-CREATE OR REPLACE FUNCTION sim_prod_w AS (id, dept_code, kwp, ts) ->
+CREATE OR REPLACE FUNCTION sim_prod_w AS (id, district_code, kwp, ts) ->
     toUInt32(round(
         kwp * 850
         * greatest(0, sin(pi() * (sim_utc_hour(ts) - 6.4) / 10.4))   -- the sun (solar time ≈ UTC)
-        * (0.25 + 0.75 * sim_random(dept_code, toDate(ts), 'meteo'))     -- clouds of the day, per department
+        * (0.25 + 0.75 * sim_random(district_code, toDate(ts), 'meteo'))     -- clouds of the day, per district
         * (0.90 + 0.20 * sim_random(id, ts, 'bruit'))
     ));
 
-CREATE OR REPLACE FUNCTION sim_iso AS (ts) ->                       -- source format: 2026-10-25T02:30:00+01:00
-    concat(substring(formatDateTime(ts, '%Y-%m-%dT%H:%i:%S%z', 'Europe/Paris'), 1, 22), ':',
-           substring(formatDateTime(ts, '%Y-%m-%dT%H:%i:%S%z', 'Europe/Paris'), 23, 2));
+CREATE OR REPLACE FUNCTION sim_iso AS (ts) ->                       -- source format: 2026-10-25T01:30:00+01:00
+    concat(substring(formatDateTime(ts, '%Y-%m-%dT%H:%i:%S%z', 'Europe/London'), 1, 22), ':',
+           substring(formatDateTime(ts, '%Y-%m-%dT%H:%i:%S%z', 'Europe/London'), 23, 2));
 
 CREATE OR REPLACE FUNCTION sim_day_points AS (day) ->        -- ends of 30-min intervals, local time
     arrayMap(x -> toDateTime(x, 'UTC'),
-             range(toUInt32(toDateTime(day, 'Europe/Paris')) + 1800,
-                   toUInt32(toDateTime(day + 1, 'Europe/Paris')) + 1, 1800));
+             range(toUInt32(toDateTime(day, 'Europe/London')) + 1800,
+                   toUInt32(toDateTime(day + 1, 'Europe/London')) + 1, 1800));
 
 
 -- The simulator dictionary: the characteristics of each meter in memory
@@ -84,15 +84,15 @@ CREATE OR REPLACE DICTIONARY simulator.dict_meter
     profile         String,
     power_kva  UInt16,
     pv_kwp         Float32,
-    dept_code      String,
+    district_code      String,
     old_end   Date,                -- last day of the old power (1970-01-01 if never changed)
     old_kva     UInt16
 )
 PRIMARY KEY meter_id
 SOURCE(CLICKHOUSE(
-    QUERY 'SELECT p.meter_id, p.profile, p.power_kva, p.pv_kwp, c.dept_code, h.valid_to, h.power_kva
+    QUERY 'SELECT p.meter_id, p.profile, p.power_kva, p.pv_kwp, c.district_code, h.valid_to, h.power_kva
            FROM ref.meter AS p
-           INNER JOIN ref.municipality AS c USING (insee_code)
+           INNER JOIN ref.ward AS c USING (ward_code)
            LEFT JOIN (SELECT meter_id, valid_to, power_kva FROM ref.meter_history WHERE valid_to < ''2099-01-01'') AS h USING (meter_id)'
     USER 'dict_reader' PASSWORD 'Dict_Workshop_2026!'))
 LAYOUT(HASHED())
@@ -118,13 +118,13 @@ WITH
     toDate('2026-10-01') + intDiv(number, 20)                                  AS day,
     number % 20                                                                 AS batch,
     -- arrival: the next day between 6am and 8am, except ~1% of late files (in the afternoon)
-    toDateTime64(toDateTime(day + 1, 'Europe/Paris'), 3, 'UTC')
+    toDateTime64(toDateTime(day + 1, 'Europe/London'), 3, 'UTC')
         + toIntervalSecond(if(sim_random(day, batch, 'retard') < 0.01, 50400, 21600 + batch * 300 + cityHash64(day, batch) % 240)) AS arrival,
     sim_day_points(day)                                                    AS timestamps,
     -- ~0.3% of meters sent nothing that day (communication failure)
     arrayFilter(n -> sim_random(n, day, 'panne') >= 0.003, range(batch * 1000, batch * 1000 + 1000)) AS ns,
     arrayMap(n -> sim_meter_id(n), ns)                                            AS ids,
-    arrayMap(id -> dictGet('simulator.dict_meter', ('profile', 'power_kva', 'pv_kwp', 'dept_code'), id), ids) AS attrs
+    arrayMap(id -> dictGet('simulator.dict_meter', ('profile', 'power_kva', 'pv_kwp', 'district_code'), id), ids) AS attrs
 SELECT
     concat('DSO_CURVE_30MIN_PUB_', toString(100000 + number), '_', sim_recipient(batch), '_', formatDateTime(arrival, '%Y%m%d%H%i%S'), '.zip') AS file_name,
     'CURVE'   AS flow_code,
@@ -156,10 +156,10 @@ CREATE OR REPLACE VIEW simulator.energy_files AS
 WITH
     toDate('2026-10-01') + intDiv(number, 20)                                  AS day,
     number % 20                                                                 AS batch,
-    toDateTime64(toDateTime(day + 1, 'Europe/Paris'), 3, 'UTC') + toIntervalSecond(25200 + batch * 120) AS arrival,
+    toDateTime64(toDateTime(day + 1, 'Europe/London'), 3, 'UTC') + toIntervalSecond(25200 + batch * 120) AS arrival,
     sim_day_points(day)                                                    AS timestamps,
     arrayMap(n -> sim_meter_id(n), range(batch * 1000, batch * 1000 + 1000))          AS ids,
-    arrayMap(id -> dictGet('simulator.dict_meter', ('profile', 'power_kva', 'pv_kwp', 'dept_code'), id), ids) AS attrs
+    arrayMap(id -> dictGet('simulator.dict_meter', ('profile', 'power_kva', 'pv_kwp', 'district_code'), id), ids) AS attrs
 SELECT
     concat('DSO_ENERGY_DAY_PUB_', toString(200000 + number), '_', sim_recipient(batch), '_', formatDateTime(arrival, '%Y%m%d%H%i%S'), '.zip') AS file_name,
     'ENERGY'   AS flow_code,
@@ -192,10 +192,10 @@ CREATE OR REPLACE VIEW simulator.pmax_files AS
 WITH
     toDate('2026-10-01') + intDiv(number, 20)                                  AS day,
     number % 20                                                                 AS batch,
-    toDateTime64(toDateTime(day + 1, 'Europe/Paris'), 3, 'UTC') + toIntervalSecond(27000 + batch * 120) AS arrival,
+    toDateTime64(toDateTime(day + 1, 'Europe/London'), 3, 'UTC') + toIntervalSecond(27000 + batch * 120) AS arrival,
     sim_day_points(day)                                                    AS timestamps,
     arrayMap(n -> sim_meter_id(n), range(batch * 1000, batch * 1000 + 1000))          AS ids,
-    arrayMap(id -> dictGet('simulator.dict_meter', ('profile', 'power_kva', 'pv_kwp', 'dept_code', 'old_end', 'old_kva'), id), ids) AS attrs
+    arrayMap(id -> dictGet('simulator.dict_meter', ('profile', 'power_kva', 'pv_kwp', 'district_code', 'old_end', 'old_kva'), id), ids) AS attrs
 SELECT
     concat('DSO_PMAX_DAY_PUB_', toString(300000 + number), '_', sim_recipient(batch), '_', formatDateTime(arrival, '%Y%m%d%H%i%S'), '.zip') AS file_name,
     'PMAX'   AS flow_code,
@@ -238,13 +238,13 @@ FROM numbers({start:UInt32}, {n:UInt32});
 SELECT
     sim_iso(ts)                                                         AS ts_text,
     sim_cons_w(sim_meter_id(1), 'RES', 9, ts)                            AS cons_w,
-    sim_prod_w(sim_meter_id(1), '92', 6, ts)                              AS prod_w,
+    sim_prod_w(sim_meter_id(1), 'E09000013', 6, ts)                            AS prod_w,
     bar(cons_w, 0, 3000, 30)                                           AS cons_chart
 FROM (SELECT arrayJoin(sim_day_points(toDate('2026-10-15'))) AS ts);
--- Measured: 11 ms · 1 row read
+-- Measured: 17 ms · 1 row read
 
 -- The day of the clock change (October 25) has 50 half-hours
---  sim_day_points computes the timestamps from midnight Paris time:
+--  sim_day_points computes the timestamps from midnight London time:
 --  on October 25, the night lasts one hour longer, hence 2 extra points.
 SELECT day, length(sim_day_points(day)) AS n_points
 FROM (SELECT toDate('2026-10-24') + number AS day FROM numbers(3));

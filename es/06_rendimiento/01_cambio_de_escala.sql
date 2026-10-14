@@ -41,7 +41,7 @@ ORDER BY (magnitud, id_contador, ts);   -- de menor a mayor cardinalidad: 2 valo
 CREATE OR REPLACE VIEW simulador.puntos_xl AS
 WITH
     sim_id_contador(intDiv(number, 1488))                                                        AS id,
-    toDateTime('2026-10-01 00:30:00', 'Europe/Paris') + toIntervalSecond(1800 * (number % 1488)) AS t,
+    toDateTime('2026-10-01 00:30:00', 'Europe/Madrid') + toIntervalSecond(1800 * (number % 1488)) AS t,
     dictGet('simulador.dict_contador', ('perfil', 'potencia_kva'), id)                         AS a
 SELECT
     id                              AS id_contador,
@@ -56,21 +56,21 @@ FROM numbers_mt({inicio:UInt64} * 1488, {n:UInt64} * 1488);
 --  max_insert_threads = 8: 8 flujos de escritura en paralelo en la réplica.
 --  Un INSERT se ejecuta en UNA réplica: su velocidad depende de los núcleos de esa réplica.
 INSERT INTO silver.curva_carga_xl SELECT * FROM simulador.puntos_xl(inicio = 0,      n = 125000) SETTINGS max_insert_threads = 8;
--- Medido: 8,38 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,1 GB de memoria
+-- Medido: 8 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,1 GB de memoria
 INSERT INTO silver.curva_carga_xl SELECT * FROM simulador.puntos_xl(inicio = 125000, n = 125000) SETTINGS max_insert_threads = 8;
--- Medido: 8,3 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,2 GB de memoria
+-- Medido: 8,15 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,1 GB de memoria
 INSERT INTO silver.curva_carga_xl SELECT * FROM simulador.puntos_xl(inicio = 250000, n = 125000) SETTINGS max_insert_threads = 8;
--- Medido: 8,7 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,1 GB de memoria
+-- Medido: 8,4 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,1 GB de memoria
 INSERT INTO silver.curva_carga_xl SELECT * FROM simulador.puntos_xl(inicio = 375000, n = 125000) SETTINGS max_insert_threads = 8;
--- Medido: 8,31 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,2 GB de memoria
+-- Medido: 8,03 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,1 GB de memoria
 INSERT INTO silver.curva_carga_xl SELECT * FROM simulador.puntos_xl(inicio = 500000, n = 125000) SETTINGS max_insert_threads = 8;
--- Medido: 8,18 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,2 GB de memoria
+-- Medido: 7,74 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,1 GB de memoria
 INSERT INTO silver.curva_carga_xl SELECT * FROM simulador.puntos_xl(inicio = 625000, n = 125000) SETTINGS max_insert_threads = 8;
--- Medido: 8,66 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,1 GB de memoria
+-- Medido: 8,02 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,1 GB de memoria
 INSERT INTO silver.curva_carga_xl SELECT * FROM simulador.puntos_xl(inicio = 750000, n = 125000) SETTINGS max_insert_threads = 8;
--- Medido: 8,23 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,1 GB de memoria
+-- Medido: 7,86 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,1 GB de memoria
 INSERT INTO silver.curva_carga_xl SELECT * FROM simulador.puntos_xl(inicio = 875000, n = 125000) SETTINGS max_insert_threads = 8;
--- Medido: 8,22 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,1 GB de memoria
+-- Medido: 7,78 s · 186 M filas leídas (1,4 GB) · 186 M filas escritas · 1,2 GB de memoria
 -- Qué observar: abajo en la consola, las filas/s de cada lote. Cada punto se calcula
 -- (dictGet + sim_consumo_w), se ordena según el ORDER BY, se comprime y se escribe en el almacenamiento de objetos.
 

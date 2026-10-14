@@ -20,15 +20,15 @@ SELECT
     payload
 FROM bronze.raw_flows
 WHERE flow_code = 'CURVE'
-  AND file_name LIKE 'DSO_CURVE_30MIN_PUB_100280_%';   -- batch 0 of October 15
--- Measured: 437 ms · 624 files read (11.5 MB of JSON) · 49,864 rows written · 103.2 MB of memory
+  AND file_name LIKE 'DSO_CURVE_30MIN_PUB_100280_%';   -- batch 0 of October 15 (Greater London)
+-- Measured: 146 ms · 624 files read (11.5 MB of JSON) · 49,865 rows written · 101.6 MB of memory
 
 --  The points are now duplicated on disk…
 --  What to look for: 96 rows for 48 distinct timestamps. Nothing was overwritten at INSERT.
 SELECT count() AS row_count, uniqExact(ts) AS distinct_points
 FROM silver.load_curve
 WHERE meter_id = sim_meter_id(42) AND day = '2026-10-15';
--- Measured: 81 ms · 78,684 rows read (648.3 KB)
+-- Measured: 74 ms · 90,662 rows read (742.2 KB)
 
 
 -- STEP 2 · Three ways to read WITHOUT duplicates
@@ -38,17 +38,17 @@ WHERE meter_id = sim_meter_id(42) AND day = '2026-10-15';
 SELECT count() AS row_count
 FROM silver.load_curve FINAL
 WHERE meter_id = sim_meter_id(42) AND day = '2026-10-15';
--- Measured: 102 ms · 86,876 rows read (1.7 MB)
+-- Measured: 126 ms · 98,854 rows read (1.9 MB)
 
 --  b) argMax(value, version): the value of the row with the highest version.
 --     Same result as FINAL, written by hand.
-SELECT toTimeZone(ts, 'Europe/Paris') AS local_time, argMax(value_w, version) AS value_w
+SELECT toTimeZone(ts, 'Europe/London') AS local_time, argMax(value_w, version) AS value_w
 FROM silver.load_curve
 WHERE meter_id = sim_meter_id(42) AND day = '2026-10-15'
 GROUP BY local_time
 ORDER BY local_time
 LIMIT 5;
--- Measured: 6 ms · 16,384 rows read (203.7 KB)
+-- Measured: 103 ms · 16,384 rows read (205.3 KB)
 
 --  c) Let the merges clean up: they deduplicate in the background,
 --     with no guaranteed timing. We do NOT call OPTIMIZE TABLE … FINAL: it rewrites
@@ -65,13 +65,13 @@ SELECT
 FROM bronze.raw_flows
 WHERE flow_code = 'CURVE'
   AND file_name LIKE 'DSO_CURVE_30MIN_PUB_100280_488903_2%';
--- Measured: 155 ms · 625 files read (11.5 MB of JSON) · 49,864 rows written · 102.5 MB of memory
+-- Measured: 155 ms · 625 files read (11.5 MB of JSON) · 49,865 rows written · 103.6 MB of memory
 
 SELECT stage, count() AS points, max(version) AS kept_version
 FROM silver.load_curve FINAL
 WHERE meter_id = sim_meter_id(42) AND day = '2026-10-15'
 GROUP BY stage;
--- Measured: 139 ms · 111,452 rows read (2.5 MB)
+-- Measured: 89 ms · 123,430 rows read (2.7 MB)
 -- What to look for: a single visible version, CORRECTED replaced RAW, without any UPDATE.
 -- This is the ClickHouse way to correct data: reinsert a more recent version
 -- (rule insert-mutation-avoid-update).

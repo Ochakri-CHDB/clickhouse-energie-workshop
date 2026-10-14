@@ -42,7 +42,7 @@ FROM
 )
 WHERE toYYYYMM(ts) = 202610
 GROUP BY id_contador, magnitud, ts;
--- Medido: 8,74 s · 623 ficheros leídos (1,4 GB de JSON) · 30,9 M filas escritas · 12,5 GB de memoria
+-- Medido: 8,18 s · 623 ficheros leídos (1,4 GB de JSON) · 30,9 M filas escritas · 12,5 GB de memoria
 
 
 -- PASO 3 · Controles antes de publicar
@@ -54,7 +54,7 @@ SELECT
     (SELECT count() FROM silver.curva_carga WHERE toYYYYMM(ts) = 202610)        AS prod_antes_merges,
     if(prod_deduplicada = reconstruido, 'OK, listo para publicar', 'ERROR, desvío: no se publica') AS veredicto
 SETTINGS select_sequential_consistency = 1;
--- Medido: 221 ms · 62,8 M filas leídas (754,2 MB) · 243,4 MB de memoria
+-- Medido: 199 ms · 62,8 M filas leídas (754,2 MB) · 239,3 MB de memoria
 
 
 -- PASO 4 · Publicación atómica: la partición de prod se sustituye de golpe
@@ -63,13 +63,13 @@ SETTINGS select_sequential_consistency = 1;
 --  a la tabla de producción. Por eso tarda menos de un segundo.
 --  Las dos tablas deben tener exactamente la misma estructura.
 ALTER TABLE silver.curva_carga REPLACE PARTITION 202610 FROM silver.curva_carga__build;
--- Medido: 192 ms
+-- Medido: 219 ms
 
 SELECT count() AS filas_prod_tras_publicar
 FROM silver.curva_carga
 WHERE toYYYYMM(ts) = 202610
 SETTINGS select_sequential_consistency = 1;
--- Medido: 181 ms · 30,9 M filas leídas (117,8 MB)
+-- Medido: 167 ms · 30,9 M filas leídas (117,8 MB)
 -- Qué observar: el recuento es igual al del rebuild. La tabla queda compacta, sin
 -- duplicados físicos, y todo ello sin OPTIMIZE TABLE … FINAL.
 
@@ -77,10 +77,10 @@ DROP TABLE silver.curva_carga__build;
 
 
 -- PASO 5 · Recalcular gold: basta con un refresco
---  Gracias a DEPENDS ON (módulo 5), el resumen por entidad local se actualiza solo.
+--  Gracias a DEPENDS ON (módulo 5), el resumen por destinatario se actualiza solo.
 SYSTEM REFRESH VIEW gold.rmv_energia_municipio_dia;
 SYSTEM WAIT VIEW gold.rmv_energia_municipio_dia;
--- Medido: 1,24 s
+-- Medido: 1,27 s
 
 
 -- PASO 6 · Intercambiar dos tablas de golpe: EXCHANGE TABLES
@@ -89,9 +89,9 @@ SYSTEM WAIT VIEW gold.rmv_energia_municipio_dia;
 --  ningún lector ve una tabla vacía o a medio llenar.
 CREATE OR REPLACE TABLE gold.energia_municipio_dia__v2 AS gold.energia_municipio_dia;
 INSERT INTO gold.energia_municipio_dia__v2 SELECT * FROM gold.energia_municipio_dia;
--- Medido: 78 ms · 22 862 filas leídas (670,2 KB) · 22 862 filas escritas
+-- Medido: 101 ms · 16 297 filas leídas (477,7 KB) · 16 297 filas escritas
 EXCHANGE TABLES gold.energia_municipio_dia AND gold.energia_municipio_dia__v2;
--- Medido: 15 ms
+-- Medido: 4 ms
 DROP TABLE gold.energia_municipio_dia__v2;
 
 

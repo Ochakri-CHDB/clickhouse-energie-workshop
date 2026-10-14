@@ -38,7 +38,7 @@ WITH
             meter_id,
             uniqExactMerge(points_received)                                                                      AS received_n,
             uniqExactIfMerge(points_before_9am)                                                                 AS before_9am,
-            dateDiff('minute', toDateTime(day, 'Europe/Paris'), toDateTime(day + 1, 'Europe/Paris')) / 30   AS expected
+            dateDiff('minute', toDateTime(day, 'Europe/London'), toDateTime(day + 1, 'Europe/London')) / 30   AS expected
         FROM gold.meter_day_collection
         GROUP BY day, meter_id
     )
@@ -56,24 +56,24 @@ GROUP BY day;
 
 SYSTEM REFRESH VIEW gold.rmv_completeness_kpi;
 SYSTEM WAIT VIEW gold.rmv_completeness_kpi;
--- Measured: 655 ms
+-- Measured: 659 ms
 
 SELECT day, data_by_9am_pct, complete_meters_9am_pct,
        if(data_by_9am_pct >= 99, 'OK', 'below target') AS target_99
 FROM gold.daily_completeness_kpi
 ORDER BY day;
--- Measured: 16 ms · 31 rows read
+-- Measured: 33 ms · 31 rows read
 -- What to look for: most days meet the target. The ones below: one or more files
 --    arrived in the afternoon (one batch = 1000 meters, i.e. 5% of the fleet at once).
 
---  Which ones? The CURVE files that arrived after 9am, Paris time
-SELECT toDate(ingested_at, 'Europe/Paris') - 1 AS day, file_name, toTimeZone(ingested_at, 'Europe/Paris') AS arrival
+--  Which ones? The CURVE files that arrived after 9am, London time
+SELECT toDate(ingested_at, 'Europe/London') - 1 AS day, file_name, toTimeZone(ingested_at, 'Europe/London') AS arrival
 FROM bronze.raw_flows
-WHERE flow_code = 'CURVE' AND toHour(ingested_at, 'Europe/Paris') >= 9
+WHERE flow_code = 'CURVE' AND toHour(ingested_at, 'Europe/London') >= 9
   AND file_name NOT LIKE '%RESEND%' AND file_name NOT LIKE '%CORRECTION%'
 ORDER BY ingested_at
 LIMIT 10;
--- Measured: 6 ms · 116 rows read (7.7 KB)
+-- Measured: 5 ms · 116 rows read (7 KB)
 
 
 -- STEP 2 · Subscribed power overrun alerts
@@ -83,13 +83,13 @@ CREATE OR REPLACE TABLE gold.pmax_alerts
 (
     day             Date,
     meter_id           UInt64,
-    municipality          String,
-    epci_code        LowCardinality(String),
+    ward          String,
+    metro_code        LowCardinality(String),
     segment          LowCardinality(String),
     subscribed_kva     UInt16,
     pmax_va          UInt32,
     overrun_pct  Float64,
-    peak_time     DateTime('Europe/Paris')
+    peak_time     DateTime('Europe/London')
 )
 ENGINE = MergeTree
 ORDER BY (day, meter_id);
@@ -101,8 +101,8 @@ AS
 SELECT
     day,
     meter_id,
-    dictGet('ref.dict_municipality', 'name', dictGet('ref.dict_meter', 'insee_code', meter_id))       AS municipality,
-    dictGet('ref.dict_municipality', 'epci_code', dictGet('ref.dict_meter', 'insee_code', meter_id)) AS epci_code,
+    dictGet('ref.dict_ward', 'name', dictGet('ref.dict_meter', 'ward_code', meter_id))       AS ward,
+    dictGet('ref.dict_ward', 'metro_code', dictGet('ref.dict_meter', 'ward_code', meter_id)) AS metro_code,
     dictGet('ref.dict_meter', 'segment', meter_id)                                               AS segment,
     dictGet('ref.dict_power_asof', 'power_kva', meter_id, day)                        AS subscribed_kva,
     pmax_va,
@@ -113,20 +113,20 @@ WHERE pmax_va > dictGet('ref.dict_power_asof', 'power_kva', meter_id, day) * 100
 
 SYSTEM REFRESH VIEW gold.rmv_pmax_alerts;
 SYSTEM WAIT VIEW gold.rmv_pmax_alerts;
--- Measured: 495 ms
+-- Measured: 416 ms
 
 SELECT day, count() AS n_alerts, round(avg(overrun_pct), 1) AS avg_overrun_pct
 FROM gold.pmax_alerts
 GROUP BY day
 ORDER BY day;
--- Measured: 39 ms · 257 rows read (2.5 KB)
+-- Measured: 36 ms · 257 rows read (2.5 KB)
 
 --  By segment: in C5, the meter's circuit breaker trips before any overrun.
 --  So the alerts only concern C4 and C2 (where overruns are billed).
 SELECT segment, count() AS alerts, uniqExact(meter_id) AS meter, round(avg(overrun_pct), 1) AS avg_overrun_pct
 FROM gold.pmax_alerts
 GROUP BY segment;
--- Measured: 2 ms · 257 rows read (4.3 KB)
+-- Measured: 3 ms · 257 rows read (4.3 KB)
 
 --  Meters that increased their power in October: fewer alerts afterwards?
 SELECT
@@ -136,7 +136,7 @@ SELECT
 FROM gold.pmax_alerts AS a
 INNER JOIN (SELECT meter_id, valid_to FROM ref.meter_history WHERE valid_to BETWEEN '2026-10-01' AND '2026-10-30') AS h
     ON h.meter_id = a.meter_id;
--- Measured: 12 ms · 1 M rows read (9.8 MB) · 65.8 MB of memory
+-- Measured: 12 ms · 1 M rows read (9.8 MB) · 63.7 MB memory
 -- What to look for: the customer was overrunning, increased their power, the alerts drop.
 --    dict_power_asof is what makes this correct: we compare with the power OF THAT DAY.
 
@@ -170,7 +170,7 @@ SELECT
 FROM gold.v_reconciliation
 GROUP BY gap_class
 ORDER BY gap_class;
--- Measured: 235 ms · 31.2 M rows read (825.8 MB) · 446.2 MB of memory
+-- Measured: 240 ms · 31.2 M rows read (826.1 MB) · 432.1 MB memory
 -- What to look for: more than 97% of meter-days match within 0.5%. The others have
 -- 1 or 2 missing points (47 or 46 points instead of 48): the curve needs to be completed.
 
@@ -179,7 +179,7 @@ ORDER BY gap_class;
 --  31 days of KPI, and at least one alert and one row in each gold table.
 SELECT
     if((SELECT count() FROM gold.meter_day_collection) > 500000, 'OK', 'FAIL')          AS collection,
-    if((SELECT count() FROM gold.municipality_day_energy) > 0, 'OK', 'FAIL')            AS energy,
+    if((SELECT count() FROM gold.ward_day_energy) > 0, 'OK', 'FAIL')            AS energy,
     if((SELECT count() FROM gold.authority_day_summary) > 0, 'OK', 'FAIL')      AS summary,
     if((SELECT count() FROM gold.daily_completeness_kpi) = 31, 'OK', 'FAIL')            AS kpi_9h,
     if((SELECT count() FROM gold.pmax_alerts) > 0, 'OK', 'FAIL')                    AS alerts

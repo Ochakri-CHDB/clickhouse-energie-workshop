@@ -42,7 +42,7 @@ FROM
 )
 WHERE toYYYYMM(ts) = 202610
 GROUP BY meter_id, quantity, ts;
--- Measured: 8.74 s · 623 files read (1.4 GB of JSON) · 30.9 M rows written · 12.5 GB of memory
+-- Measured: 8.16 s · 623 files read (1.4 GB of JSON) · 30.9 M rows written · 12.5 GB of memory
 
 
 -- STEP 3 · Checks before publishing
@@ -54,7 +54,7 @@ SELECT
     (SELECT count() FROM silver.load_curve WHERE toYYYYMM(ts) = 202610)        AS prod_before_merges,
     if(prod_deduplicated = rebuild, 'OK, ready to publish', 'FAIL, mismatch: do not publish') AS verdict
 SETTINGS select_sequential_consistency = 1;
--- Measured: 221 ms · 62.8 M rows read (754.2 MB) · 243.4 MB of memory
+-- Measured: 218 ms · 62.8 M rows read (754.7 MB) · 236 MB memory
 
 
 -- STEP 4 · Atomic publish: the prod partition is replaced in one go
@@ -63,13 +63,13 @@ SETTINGS select_sequential_consistency = 1;
 --  to the production table. That is why it takes less than a second.
 --  Both tables must have exactly the same structure.
 ALTER TABLE silver.load_curve REPLACE PARTITION 202610 FROM silver.load_curve__build;
--- Measured: 192 ms
+-- Measured: 215 ms
 
 SELECT count() AS prod_rows_after_publish
 FROM silver.load_curve
 WHERE toYYYYMM(ts) = 202610
 SETTINGS select_sequential_consistency = 1;
--- Measured: 181 ms · 30.9 M rows read (117.8 MB)
+-- Measured: 147 ms · 30.9 M rows read (117.9 MB)
 -- What to look for: the count equals the rebuild. The table is compact, no more physical
 -- duplicates, and all that without OPTIMIZE TABLE … FINAL.
 
@@ -78,21 +78,21 @@ DROP TABLE silver.load_curve__build;
 
 -- STEP 5 · Recompute gold: a simple refresh
 --  Thanks to DEPENDS ON (module 5), the per-authority summary follows automatically.
-SYSTEM REFRESH VIEW gold.rmv_municipality_day_energy;
-SYSTEM WAIT VIEW gold.rmv_municipality_day_energy;
--- Measured: 1.24 s
+SYSTEM REFRESH VIEW gold.rmv_ward_day_energy;
+SYSTEM WAIT VIEW gold.rmv_ward_day_energy;
+-- Measured: 1.3 s
 
 
 -- STEP 6 · Swap two tables in one go: EXCHANGE TABLES
 --  Example: a new version of a gold table, built alongside the old one.
 --  EXCHANGE TABLES swaps the names of the two tables in a single atomic operation:
 --  no reader ever sees an empty or half-filled table.
-CREATE OR REPLACE TABLE gold.municipality_day_energy__v2 AS gold.municipality_day_energy;
-INSERT INTO gold.municipality_day_energy__v2 SELECT * FROM gold.municipality_day_energy;
--- Measured: 78 ms · 22,862 rows read (670.2 KB) · 22,862 rows written
-EXCHANGE TABLES gold.municipality_day_energy AND gold.municipality_day_energy__v2;
--- Measured: 15 ms
-DROP TABLE gold.municipality_day_energy__v2;
+CREATE OR REPLACE TABLE gold.ward_day_energy__v2 AS gold.ward_day_energy;
+INSERT INTO gold.ward_day_energy__v2 SELECT * FROM gold.ward_day_energy;
+-- Measured: 132 ms · 76,177 rows read (2.5 MB) · 76,177 rows written
+EXCHANGE TABLES gold.ward_day_energy AND gold.ward_day_energy__v2;
+-- Measured: 7 ms
+DROP TABLE gold.ward_day_energy__v2;
 
 
 -- STEP 7 · Pause a view during a heavy operation

@@ -18,13 +18,13 @@
 -- CONSULTA 1 · La curva de UN contador en el mes (el caso del portal de cliente)
 --  El filtro sigue el inicio del ORDER BY (magnitud, id_contador): ClickHouse salta
 --  directamente a los gránulos correctos (regla schema-pk-filter-on-orderby).
-SELECT toTimeZone(ts, 'Europe/Paris') AS hora, valor_w
+SELECT toTimeZone(ts, 'Europe/Madrid') AS hora, valor_w
 FROM silver.curva_carga_xl
 WHERE magnitud = 'CONS' AND id_contador = sim_id_contador(123456)   -- las 2 primeras columnas del ORDER BY
 ORDER BY ts;
--- Medido: 16 384 filas leídas (272 KB) · de 250 a 265 ms en la primera llamada a una réplica
--- (lectura desde el almacenamiento de objetos), luego de 5 a 55 ms: ha tomado el relevo
--- la caché de disco local de la réplica
+-- Medido: 264 ms · 16 384 filas leídas (272 KB) en la primera llamada a una réplica (lectura en frío), luego de 5 a 55 ms
+-- Qué observar: la 1.ª lectura viene del almacenamiento de objetos; en las siguientes
+-- ha tomado el relevo la caché de disco local de la réplica.
 
 --  EXPLAIN indexes = 1 muestra lo que ha descartado el índice, sin ejecutar la consulta.
 EXPLAIN indexes = 1
@@ -33,18 +33,20 @@ SELECT valor_w FROM silver.curva_carga_xl WHERE magnitud = 'CONS' AND id_contado
 -- leídos de ~180 000: por eso la consulta es instantánea.
 
 
--- CONSULTA 2 · Por departamento: 1 500 millones de filas, 3 000 millones de dictGet
+-- CONSULTA 2 · Por provincia: 1 500 millones de filas, 3 000 millones de dictGet
 --  Aquí ningún índice puede ayudar: queremos TODAS las filas. Es un escaneo
 --  completo, y su velocidad depende del número de núcleos que trabajan en él.
 SELECT
-    dictGet('ref.dict_municipio', 'codigo_dpto', dictGet('ref.dict_contador', 'codigo_insee', id_contador)) AS dpto,
-    dictGet('ref.dict_departamento', 'nombre', dpto) AS departamento,
+    dictGet('ref.dict_municipio', 'codigo_provincia', dictGet('ref.dict_contador', 'codigo_ine', id_contador)) AS codigo_provincia,
+    dictGet('ref.dict_provincia', 'nombre', codigo_provincia) AS provincia,
     round(sum(valor_w) * 0.5 / 1e9, 2) AS gwh
 FROM silver.curva_carga_xl
-GROUP BY dpto
+GROUP BY codigo_provincia
 ORDER BY gwh DESC
 LIMIT 10;
--- Medido: 5,77 s · 1,488 mil M filas leídas (16,6 GB) · 388,3 MB de memoria
+-- Medido: 5,72 s · 1,488 mil M filas leídas (16,6 GB) · 382,6 MB de memoria
+-- Qué observar: Madrid (138 GWh) y Barcelona (107 GWh) en cabeza, luego Valencia,
+-- Alicante y Sevilla. El parque simulado se reparte según el padrón: sigue la población.
 
 
 -- OPTIMIZACIÓN A · Repartir el escaneo entre las 3 réplicas (parallel replicas)
@@ -54,19 +56,19 @@ LIMIT 10;
 --  todas las réplicas leen los mismos datos del almacenamiento de objetos, basta con añadir
 --  cómputo para ir más rápido.
 SELECT
-    dictGet('ref.dict_municipio', 'codigo_dpto', dictGet('ref.dict_contador', 'codigo_insee', id_contador)) AS dpto,
-    dictGet('ref.dict_departamento', 'nombre', dpto) AS departamento,
+    dictGet('ref.dict_municipio', 'codigo_provincia', dictGet('ref.dict_contador', 'codigo_ine', id_contador)) AS codigo_provincia,
+    dictGet('ref.dict_provincia', 'nombre', codigo_provincia) AS provincia,
     round(sum(valor_w) * 0.5 / 1e9, 2) AS gwh
 FROM silver.curva_carga_xl
-GROUP BY dpto
+GROUP BY codigo_provincia
 ORDER BY gwh DESC
 LIMIT 10
 SETTINGS enable_parallel_replicas = 1;
--- Medido: 2,17 s · 1,488 mil M filas leídas (16,6 GB) · 197,1 MB de memoria
--- Mejora: 5,77 s → 2,17 s (×2,7) con 3 réplicas, sin cambiar una línea de SQL
--- Qué observar: mismo resultado, mismo número de filas leídas, duración dividida por
--- aproximadamente el número de réplicas. La mejora es mayor en las consultas
--- que calculan mucho por fila (aquí los dictGet).
+-- Medido: 3,12 s · 1,488 mil M filas leídas (16,6 GB) · 199,9 MB de memoria
+-- Mejora: 5,72 s → 3,12 s (×1,8) con 3 réplicas, sin cambiar una línea de SQL
+-- Qué observar: mismo resultado, mismo número de filas leídas, duración casi dividida
+-- por dos (repartir el trabajo y fusionar los resultados tiene un coste). La mejora es
+-- mayor en las consultas que calculan mucho por fila (aquí los dictGet).
 
 
 -- OPTIMIZACIÓN B · La PROJECTION de agregación (declarada al crear la tabla)
@@ -74,32 +76,33 @@ SETTINGS enable_parallel_replicas = 1;
 --  la pregunta: la consulta no cambia. Para medir la diferencia, primero la
 --  desactivamos con optimize_use_projections = 0.
 --  La punta nacional del mes, SIN la proyección:
-SELECT toTimeZone(ts, 'Europe/Paris') AS instante, round(sum(valor_w) / 1e6) AS mw
+SELECT toTimeZone(ts, 'Europe/Madrid') AS instante, round(sum(valor_w) / 1e6) AS mw
 FROM silver.curva_carga_xl
 GROUP BY ts
 ORDER BY mw DESC
 LIMIT 5
 SETTINGS optimize_use_projections = 0;
--- Medido: 1,3 s · 1,488 mil M filas leídas (11,1 GB) · 229,5 MB de memoria
+-- Medido: 2,54 s · 1,488 mil M filas leídas (11,1 GB) · 264 MB de memoria
 
 --  … y CON ella (el ajuste por defecto):
-SELECT toTimeZone(ts, 'Europe/Paris') AS instante, round(sum(valor_w) / 1e6) AS mw
+SELECT toTimeZone(ts, 'Europe/Madrid') AS instante, round(sum(valor_w) / 1e6) AS mw
 FROM silver.curva_carga_xl
 GROUP BY ts
 ORDER BY mw DESC
 LIMIT 5;
--- Medido: 33 ms · 17 835 filas leídas (348,3 KB)
--- Mejora: 1,3 s → 33 ms (×39), y 83 000 veces menos filas leídas
--- Qué observar: mismo resultado, unos miles de filas leídas en lugar de 1 500 millones.
+-- Medido: 34 ms · 22 290 filas leídas (435,4 KB)
+-- Mejora: 2,54 s → 34 ms (×75), y 67 000 veces menos filas leídas
+-- Qué observar: mismo resultado (punta de 1 947 MW el 30 de octubre a las 19h), unas
+-- 22 000 filas leídas en lugar de 1 500 millones.
 -- La proyección ya contiene una fila por media hora (y por part).
 
---  Extra: el consumo de Francia día a día aprovecha la misma proyección,
+--  Extra: el consumo de España día a día aprovecha la misma proyección,
 --  porque toDate(ts) se calcula a partir de ts, que está en la proyección.
-SELECT toDate(ts - 1, 'Europe/Paris') AS dia, round(sum(valor_w) * 0.5 / 1e9, 2) AS gwh
+SELECT toDate(ts - 1, 'Europe/Madrid') AS dia, round(sum(valor_w) * 0.5 / 1e9, 2) AS gwh
 FROM silver.curva_carga_xl
 GROUP BY dia
 ORDER BY dia;
--- Medido: 7 ms · 17 835 filas leídas (348,3 KB), frente a ~1 s y 1,488 mil M de filas sin proyección
+-- Medido: 6 ms · 22 290 filas leídas (435,4 KB), frente a más de 1 s y 1,488 mil M de filas sin proyección
 
 --  En una tabla ya cargada, la proyección se añadiría así:
 --    ALTER TABLE silver.curva_carga_xl ADD PROJECTION p_curva_nacional (SELECT ts, sum(valor_w), count() GROUP BY ts);
@@ -117,14 +120,14 @@ SELECT count() AS puntos_sobre_100kw, uniqExact(id_contador) AS contador
 FROM silver.curva_carga_xl
 WHERE valor_w > 100000
 SETTINGS use_skip_indexes = 0;
--- Medido: 692 ms · 1,488 mil M filas leídas (5,7 GB) · 250 MB de memoria
+-- Medido: 736 ms · 1,488 mil M filas leídas (5,7 GB) · 232,2 MB de memoria
 
 --  CON el índice:
 SELECT count() AS puntos_sobre_100kw, uniqExact(id_contador) AS contador
 FROM silver.curva_carga_xl
 WHERE valor_w > 100000;
--- Medido: 159 ms · 22,5 M filas leídas (245,6 MB) · 106,5 MB de memoria
--- Mejora: 692 ms → 159 ms (×4,4), 1,5 % de la tabla leída
+-- Medido: 121 ms · 22,6 M filas leídas (246,8 MB) · 99,2 MB de memoria
+-- Mejora: 736 ms → 121 ms (×6,1), 1,5 % de la tabla leída
 
 EXPLAIN indexes = 1
 SELECT count() FROM silver.curva_carga_xl WHERE valor_w > 100000;
@@ -149,30 +152,30 @@ SELECT count() FROM silver.curva_carga_xl WHERE valor_w > 100000;
 SYSTEM DROP QUERY CACHE;
 
 SELECT
-    dictGet('ref.dict_municipio', 'codigo_dpto', dictGet('ref.dict_contador', 'codigo_insee', id_contador)) AS dpto,
-    dictGet('ref.dict_departamento', 'nombre', dpto) AS departamento,
+    dictGet('ref.dict_municipio', 'codigo_provincia', dictGet('ref.dict_contador', 'codigo_ine', id_contador)) AS codigo_provincia,
+    dictGet('ref.dict_provincia', 'nombre', codigo_provincia) AS provincia,
     round(sum(valor_w) * 0.5 / 1e9, 2) AS gwh
 FROM silver.curva_carga_xl
-GROUP BY dpto
+GROUP BY codigo_provincia
 ORDER BY gwh DESC
 LIMIT 10
 SETTINGS use_query_cache = 1, query_cache_ttl = 300,
          query_cache_nondeterministic_function_handling = 'save';
--- Medido: 4,93 s · 1,488 mil M filas leídas (16,6 GB) · 387,7 MB de memoria
+-- Medido: 5,25 s · 1,488 mil M filas leídas (16,6 GB) · 381 MB de memoria
 
 --  … vuelve a lanzar exactamente la misma consulta:
 SELECT
-    dictGet('ref.dict_municipio', 'codigo_dpto', dictGet('ref.dict_contador', 'codigo_insee', id_contador)) AS dpto,
-    dictGet('ref.dict_departamento', 'nombre', dpto) AS departamento,
+    dictGet('ref.dict_municipio', 'codigo_provincia', dictGet('ref.dict_contador', 'codigo_ine', id_contador)) AS codigo_provincia,
+    dictGet('ref.dict_provincia', 'nombre', codigo_provincia) AS provincia,
     round(sum(valor_w) * 0.5 / 1e9, 2) AS gwh
 FROM silver.curva_carga_xl
-GROUP BY dpto
+GROUP BY codigo_provincia
 ORDER BY gwh DESC
 LIMIT 10
 SETTINGS use_query_cache = 1, query_cache_ttl = 300,
          query_cache_nondeterministic_function_handling = 'save';
 -- Medido: 1 ms (resultado servido por la caché, ningún dato releído)
--- Mejora: 4,93 s → 1 ms
+-- Mejora: 5,25 s → 1 ms
 -- Qué observar: la 2.ª ejecución responde en un milisegundo y no lee ninguna fila.
 -- Atención: la caché es propia de cada réplica. Si la consola te manda a
 -- otra réplica, la 1.ª llamada recalcula allí: lánzala una vez más.

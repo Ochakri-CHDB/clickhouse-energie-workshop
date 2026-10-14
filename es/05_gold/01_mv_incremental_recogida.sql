@@ -35,7 +35,7 @@ SELECT
     dia,
     id_contador,
     uniqExactState(ts)                                                                  AS puntos_recibidos,
-    uniqExactIfState(ts, toUInt8(version < toDateTime(dia + 1, 'Europe/Paris') + INTERVAL 9 HOUR)) AS puntos_antes_9h,
+    uniqExactIfState(ts, toUInt8(version < toDateTime(dia + 1, 'Europe/Madrid') + INTERVAL 9 HOUR)) AS puntos_antes_9h,
     min(version)                                                                        AS primera_llegada,
     max(version)                                                                        AS ultima_llegada
 FROM silver.curva_carga
@@ -48,12 +48,12 @@ INSERT INTO gold.recogida_contador_dia
 SELECT
     dia, id_contador,
     uniqExactState(ts),
-    uniqExactIfState(ts, toUInt8(version < toDateTime(dia + 1, 'Europe/Paris') + INTERVAL 9 HOUR)),
+    uniqExactIfState(ts, toUInt8(version < toDateTime(dia + 1, 'Europe/Madrid') + INTERVAL 9 HOUR)),
     min(version), max(version)
 FROM silver.curva_carga
 WHERE magnitud = 'CONS'
 GROUP BY dia, id_contador;
--- Medido: 5,22 s · 29,8 M filas leídas (653,8 MB) · 618 163 filas escritas · 3,2 GB de memoria
+-- Medido: 5,26 s · 29,8 M filas leídas (653,8 MB) · 618 163 filas escritas · 3,2 GB de memoria
 
 
 -- PASO 4 · Leer estados: el sufijo -Merge
@@ -69,7 +69,7 @@ WHERE id_contador = sim_id_contador(42)
 GROUP BY dia
 ORDER BY dia
 LIMIT 10;
--- Medido: 58 ms · 253 952 filas leídas (62,5 MB) · 241,6 MB de memoria
+-- Medido: 58 ms · 253 952 filas leídas (62,5 MB) · 236,7 MB de memoria
 
 
 -- PASO 5 · El experimento del duplicado: una SUMA en una MV, ¿es segura?
@@ -90,23 +90,23 @@ GROUP BY dia;
 
 INSERT INTO gold.energia_ingenua
 SELECT dia, sum(valor_w * paso_min / 60 / 1000) FROM silver.curva_carga FINAL WHERE magnitud = 'CONS' GROUP BY dia;
--- Medido: 298 ms · 30,4 M filas leídas (810,1 MB) · 31 filas escritas · 363,7 MB de memoria
+-- Medido: 400 ms · 30,4 M filas leídas (810,1 MB) · 31 filas escritas · 303 MB de memoria
 
 --  Reenviamos un fichero ya recibido (el lote 3 del 20 de octubre)
 INSERT INTO bronze.flujos_brutos
 SELECT replaceOne(file_name, '_488903_', '_488903_REENVIO_'), codigo_flujo, ingested_at + INTERVAL 1 DAY, payload
 FROM bronze.flujos_brutos
 WHERE file_name LIKE 'DSO_CURVA_30MIN_PUB_100383_488903_2%';
--- Medido: 205 ms · 102 106 filas leídas (20,1 MB) · 51 149 filas escritas · 96,8 MB de memoria
+-- Medido: 273 ms · 102 106 filas leídas (20,1 MB) · 51 149 filas escritas · 102,6 MB de memoria
 
 SELECT
     (SELECT round(sum(energia_kwh)) FROM gold.energia_ingenua WHERE dia = '2026-10-20')                         AS suma_por_mv,
     (SELECT round(sum(valor_w * paso_min / 60 / 1000)) FROM silver.curva_carga FINAL WHERE magnitud = 'CONS' AND dia = '2026-10-20') AS suma_real,
     (SELECT sum(n) FROM (SELECT uniqExactMerge(puntos_recibidos) AS n FROM gold.recogida_contador_dia WHERE dia = '2026-10-20' GROUP BY id_contador)) AS puntos_mv_uniq,
     (SELECT count() FROM silver.curva_carga FINAL WHERE magnitud = 'CONS' AND dia = '2026-10-20')           AS puntos_reales;
--- Medido: 355 ms · 61,1 M filas leídas (1,5 GB) · 355 MB de memoria
--- Qué observar: la suma se desvía un 6 % aproximadamente (el fichero reenviado se cuenta
---    2 veces), uniqExact sigue siendo correcto.
+-- Medido: 371 ms · 61,1 M filas leídas (1,5 GB) · 355,2 MB de memoria
+-- Qué observar: la suma se desvía un 5,9 % (684 983 kWh frente a 646 706: el fichero
+--    reenviado se cuenta 2 veces), uniqExact sigue siendo correcto (956 782 en los dos).
 --    Regla: sum en una MV incremental solo si la fuente nunca tiene duplicados.
 --    Si no: vista materializada REFRESCABLE sobre silver FINAL (fichero siguiente).
 

@@ -39,7 +39,7 @@ FROM numbers(10);
 --  14-digit text format used in the distribution system operator's files.
 SELECT leftPad(toString(10000000000000 + number * 4093 + cityHash64(number) % 4093), 14, '0') AS meterId
 FROM numbers(5);
--- Measured: 1 ms · 5 rows read
+-- Measured: 2 ms · 5 rows read
 
 
 -- STEP 4 · A daily energy measurement: a named tuple becomes a JSON object
@@ -99,6 +99,6 @@ FROM
     FROM numbers(1000000)
 )
 SETTINGS enable_named_columns_in_function_tuple = 1;
--- Measured: 266 ms · 1 M rows read (7.6 MB)
+-- Measured: 232 ms · 1 M rows read (7.6 MB)
 -- What to look for: the duration at the bottom of the console. Replace 1000000 with 10000000:
 -- the time is roughly multiplied by 10, the speed in rows/s stays stable.

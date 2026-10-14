@@ -4,7 +4,8 @@
 --  Regla de oro de bronze: guardamos el bruto, no transformamos nada.
 --  Una fila = un fichero recibido (1000 contadores, 1 día).
 --  Volumen: 20 000 contadores × 31 días, flujos CURVA (curvas de 30 min), ENERGIA (energía diaria), PMAX (potencia máxima)
---  Destinatarios: las 6 metrópolis (12 lotes para el Grand Paris, 2 para Lyon…)
+--  Destinatarios: las 6 áreas urbanas (12 lotes para Madrid, 2 para Barcelona,
+--  Valencia y Sevilla, 1 para Bilbao y Málaga)
 --
 --  ¿Por qué guardar el bruto? Si cambia una regla de parsing o se corrige
 --  un bug, se puede reconstruir todo desde bronze (módulo 7), sin volver a pedir
@@ -36,13 +37,13 @@ WITH
     toDate('2026-10-01') + intDiv(number, 20)                                  AS dia,
     number % 20                                                                 AS lote,
     -- llegada: al día siguiente entre las 6h y las 8h, salvo ~1 % de ficheros con retraso (por la tarde)
-    toDateTime64(toDateTime(dia + 1, 'Europe/Paris'), 3, 'UTC')
+    toDateTime64(toDateTime(dia + 1, 'Europe/Madrid'), 3, 'UTC')
         + toIntervalSecond(if(sim_aleatorio(dia, lote, 'retard') < 0.01, 50400, 21600 + lote * 300 + cityHash64(dia, lote) % 240)) AS llegada,
     sim_puntos_dia(dia)                                                    AS marcas_tiempo,
     -- ~0,3 % de los contadores no enviaron nada ese día (fallo de comunicación)
     arrayFilter(n -> sim_aleatorio(n, dia, 'panne') >= 0.003, range(lote * 1000, lote * 1000 + 1000)) AS ns,
     arrayMap(n -> sim_id_contador(n), ns)                                            AS ids,
-    arrayMap(id -> dictGet('simulador.dict_contador', ('perfil', 'potencia_kva', 'fv_kwp', 'codigo_dpto'), id), ids) AS attrs
+    arrayMap(id -> dictGet('simulador.dict_contador', ('perfil', 'potencia_kva', 'fv_kwp', 'codigo_provincia'), id), ids) AS attrs
 SELECT
     concat('DSO_CURVA_30MIN_PUB_', toString(100000 + number), '_', sim_destinatario(lote), '_', formatDateTime(llegada, '%Y%m%d%H%i%S'), '.zip') AS file_name,
     'CURVA'   AS codigo_flujo,
@@ -70,7 +71,7 @@ SELECT
                                                        puntos Array(Tuple(d String, v String)))))))')) AS payload
 FROM numbers(0, 20)
 SETTINGS max_block_size = 2;   -- 2 ficheros por bloque: cada fichero pesa ~2 MB de JSON, así la memoria se mantiene baja
--- Medido: 697 ms · 20 ficheros JSON generados y escritos (46 MB) · 208,5 MB de memoria
+-- Medido: 901 ms · 20 filas leídas · 20 filas escritas · 213,1 MB de memoria
 
 --  ¿Qué hemos recibido? length() da el tamaño del JSON en bytes.
 SELECT codigo_flujo, count() AS ficheros, formatReadableSize(sum(length(payload))) AS volumen_json
@@ -82,7 +83,7 @@ GROUP BY codigo_flujo;
 SELECT file_name, ingested_at, substring(payload, 1, 600) AS inicio_json
 FROM bronze.flujos_brutos
 LIMIT 1;
--- Medido: 13 ms · 5 filas leídas (11,5 MB)
+-- Medido: 15 ms · 5 filas leídas (11,5 MB)
 
 
 -- PASO 3 · El resto del mes: días 2 a 30 (580 ficheros, ~28 millones de puntos)
@@ -120,7 +121,7 @@ SELECT
 FROM bronze.flujos_brutos
 GROUP BY codigo_flujo
 ORDER BY codigo_flujo;
--- Medido: 58 ms · 1 800 filas leídas (29,9 KB)
+-- Medido: 60 ms · 1 800 filas leídas (29,9 KB)
 
 --  ¿Cuánto ocupa de verdad en disco? (compresión ZSTD del JSON)
 --  Qué observar: el JSON es muy repetitivo (mismas claves, mismas fechas): se

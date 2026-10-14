@@ -8,9 +8,9 @@
 --  it is dropped in one go: that is the point of partitioning by month
 --  (rule schema-partition-lifecycle).
 ALTER TABLE bronze.raw_flows MODIFY TTL toDateTime(ingested_at) + INTERVAL 90 DAY;
--- Measured: 51 ms
+-- Measured: 44 ms
 ALTER TABLE silver.rejects  MODIFY TTL toDateTime(ingested_at) + INTERVAL 30 DAY;
--- Measured: 72 ms
+-- Measured: 53 ms
 SHOW CREATE TABLE bronze.raw_flows;
 
 
@@ -20,11 +20,11 @@ SHOW CREATE TABLE bronze.raw_flows;
 --  To delete a lot of data at once, prefer DROP PARTITION
 --  (rule insert-mutation-avoid-delete).
 SELECT count() AS before FROM silver.load_curve WHERE meter_id = sim_meter_id(999);
--- Measured: 7 ms · 414,556 rows read (3.2 MB)
+-- Measured: 8 ms · 426,534 rows read (3.3 MB)
 DELETE FROM silver.load_curve WHERE meter_id = sim_meter_id(999);
--- Measured: 7.11 s
+-- Measured: 7.06 s
 SELECT count() AS after FROM silver.load_curve WHERE meter_id = sim_meter_id(999);
--- Measured: 79 ms · 86,876 rows read (763.6 KB)
+-- Measured: 88 ms · 98,854 rows read (868.8 KB)
 
 
 -- STEP 3 · Fixing a value, in order of preference
@@ -44,17 +44,19 @@ SELECT command, is_done, parts_to_do FROM system.mutations WHERE database = 'ref
 --  A row policy adds an invisible filter to every query of a role.
 --  Security lives in the database: the front end does not have to add a WHERE,
 --  and cannot forget it.
-CREATE ROLE IF NOT EXISTS role_grand_paris;
-GRANT SELECT ON gold.* TO role_grand_paris;
+CREATE ROLE IF NOT EXISTS role_greater_london;
+GRANT SELECT ON gold.* TO role_greater_london;
 
-CREATE ROW POLICY OR REPLACE rp_gp_energie   ON gold.municipality_day_energy        USING epci_code = '200054781'    TO role_grand_paris;
-CREATE ROW POLICY OR REPLACE rp_gp_courbe    ON gold.epci_curve                 USING epci_code = '200054781'    TO role_grand_paris;
-CREATE ROW POLICY OR REPLACE rp_gp_synthese  ON gold.authority_day_summary  USING recipient_id = '488903' TO role_grand_paris;
-CREATE ROW POLICY OR REPLACE rp_gp_alertes   ON gold.pmax_alerts                USING epci_code = '200054781'    TO role_grand_paris;
+CREATE ROW POLICY OR REPLACE rp_gl_energie   ON gold.ward_day_energy        USING metro_code = 'E61000001'    TO role_greater_london;
+CREATE ROW POLICY OR REPLACE rp_gl_courbe    ON gold.metro_curve                 USING metro_code = 'E61000001'    TO role_greater_london;
+CREATE ROW POLICY OR REPLACE rp_gl_synthese  ON gold.authority_day_summary  USING recipient_id = '488903' TO role_greater_london;
+CREATE ROW POLICY OR REPLACE rp_gl_alertes   ON gold.pmax_alerts                USING metro_code = 'E61000001'    TO role_greater_london;
 
 SELECT short_name, database, table, select_filter, apply_to_list
 FROM system.row_policies
 WHERE database = 'gold';
+-- What to look for: 4 rp_gl_* policies, all applied to role_greater_london, filtering
+-- on the Greater London Authority (metro_code E61000001, recipient 488903).
 --  In production: a user (or a front-end service account) is granted this role.
---    CREATE USER front_grand_paris IDENTIFIED BY '…' DEFAULT ROLE role_grand_paris;
---  It queries the same tables, but only sees the Métropole du Grand Paris.
+--    CREATE USER front_greater_london IDENTIFIED BY '…' DEFAULT ROLE role_greater_london;
+--  It queries the same tables, but only sees the Greater London Authority.

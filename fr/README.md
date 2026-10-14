@@ -222,7 +222,7 @@ Tout ce qui apparaît dans les slides et dans le repo, en une ligne.
 06_performance/       1,5 milliard de points, optimisations mesurées
 07_exploitation/      rejeu, TTL, sécurité, observabilité
 08_dashboards_agent/  README pas à pas : dashboard, API, ClickHouse Agents (aucun fichier SQL)
-../data/              référentiels INSEE de secours (à la racine, communs aux 3 langues) (si geo.api.gouv.fr ne répond pas)
+../data/fr/           référentiels INSEE de secours (si geo.api.gouv.fr ne répond pas)
 run_all.sh, reset.sql exécution complète et nettoyage
 RESULTATS.md          chiffres mesurés sur le service de test, module par module
 ```

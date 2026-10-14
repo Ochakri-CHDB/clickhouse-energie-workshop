@@ -38,7 +38,7 @@ WITH
             id_contador,
             uniqExactMerge(puntos_recibidos)                                                                      AS recibidos,
             uniqExactIfMerge(puntos_antes_9h)                                                                 AS antes_9h,
-            dateDiff('minute', toDateTime(dia, 'Europe/Paris'), toDateTime(dia + 1, 'Europe/Paris')) / 30   AS esperados
+            dateDiff('minute', toDateTime(dia, 'Europe/Madrid'), toDateTime(dia + 1, 'Europe/Madrid')) / 30   AS esperados
         FROM gold.recogida_contador_dia
         GROUP BY dia, id_contador
     )
@@ -56,24 +56,24 @@ GROUP BY dia;
 
 SYSTEM REFRESH VIEW gold.rmv_kpi_completitud;
 SYSTEM WAIT VIEW gold.rmv_kpi_completitud;
--- Medido: 655 ms
+-- Medido: 614 ms
 
 SELECT dia, datos_9h_pct, contadores_completos_9h_pct,
        if(datos_9h_pct >= 99, 'OK', 'bajo el objetivo') AS objetivo_99
 FROM gold.kpi_completitud_dia
 ORDER BY dia;
--- Medido: 16 ms · 31 filas leídas
+-- Medido: 36 ms · 31 filas leídas
 -- Qué observar: la mayoría de los días alcanzan el objetivo. Los que quedan por debajo: uno o
 --    varios ficheros llegados por la tarde (un lote = 1000 contadores, el 5 % del parque de golpe).
 
---  ¿Cuáles? Los ficheros CURVA llegados después de las 9h, hora de París
-SELECT toDate(ingested_at, 'Europe/Paris') - 1 AS dia, file_name, toTimeZone(ingested_at, 'Europe/Paris') AS llegada
+--  ¿Cuáles? Los ficheros CURVA llegados después de las 9h, hora de Madrid
+SELECT toDate(ingested_at, 'Europe/Madrid') - 1 AS dia, file_name, toTimeZone(ingested_at, 'Europe/Madrid') AS llegada
 FROM bronze.flujos_brutos
-WHERE codigo_flujo = 'CURVA' AND toHour(ingested_at, 'Europe/Paris') >= 9
+WHERE codigo_flujo = 'CURVA' AND toHour(ingested_at, 'Europe/Madrid') >= 9
   AND file_name NOT LIKE '%REENVIO%' AND file_name NOT LIKE '%CORRECCION%'
 ORDER BY ingested_at
 LIMIT 10;
--- Medido: 6 ms · 116 filas leídas (7,7 KB)
+-- Medido: 6 ms · 116 filas leídas (7 KB)
 
 
 -- PASO 2 · Las alertas de exceso de potencia contratada
@@ -84,12 +84,12 @@ CREATE OR REPLACE TABLE gold.alertas_pmax
     dia             Date,
     id_contador           UInt64,
     municipio          String,
-    codigo_epci        LowCardinality(String),
+    codigo_area        LowCardinality(String),
     segmento          LowCardinality(String),
     kva_contratado     UInt16,
     pmax_va          UInt32,
     exceso_pct  Float64,
-    instante_punta     DateTime('Europe/Paris')
+    instante_punta     DateTime('Europe/Madrid')
 )
 ENGINE = MergeTree
 ORDER BY (dia, id_contador);
@@ -101,8 +101,8 @@ AS
 SELECT
     dia,
     id_contador,
-    dictGet('ref.dict_municipio', 'nombre', dictGet('ref.dict_contador', 'codigo_insee', id_contador))       AS municipio,
-    dictGet('ref.dict_municipio', 'codigo_epci', dictGet('ref.dict_contador', 'codigo_insee', id_contador)) AS codigo_epci,
+    dictGet('ref.dict_municipio', 'nombre', dictGet('ref.dict_contador', 'codigo_ine', id_contador))       AS municipio,
+    dictGet('ref.dict_municipio', 'codigo_area', dictGet('ref.dict_contador', 'codigo_ine', id_contador)) AS codigo_area,
     dictGet('ref.dict_contador', 'segmento', id_contador)                                               AS segmento,
     dictGet('ref.dict_potencia_asof', 'potencia_kva', id_contador, dia)                        AS kva_contratado,
     pmax_va,
@@ -113,20 +113,20 @@ WHERE pmax_va > dictGet('ref.dict_potencia_asof', 'potencia_kva', id_contador, d
 
 SYSTEM REFRESH VIEW gold.rmv_alertas_pmax;
 SYSTEM WAIT VIEW gold.rmv_alertas_pmax;
--- Medido: 495 ms
+-- Medido: 511 ms
 
 SELECT dia, count() AS n_alertas, round(avg(exceso_pct), 1) AS exceso_medio_pct
 FROM gold.alertas_pmax
 GROUP BY dia
 ORDER BY dia;
--- Medido: 39 ms · 257 filas leídas (2,5 KB)
+-- Medido: 37 ms · 257 filas leídas (2,5 KB)
 
 --  Por segmento: en C5, el interruptor del contador corta antes de que haya exceso.
 --  Por eso las alertas solo afectan a C4 y C2 (excesos facturados).
 SELECT segmento, count() AS alertas, uniqExact(id_contador) AS contador, round(avg(exceso_pct), 1) AS exceso_medio_pct
 FROM gold.alertas_pmax
 GROUP BY segmento;
--- Medido: 2 ms · 257 filas leídas (4,3 KB)
+-- Medido: 3 ms · 257 filas leídas (4,3 KB)
 
 --  Los contadores que aumentaron su potencia en octubre: ¿menos alertas después?
 SELECT
@@ -136,7 +136,7 @@ SELECT
 FROM gold.alertas_pmax AS a
 INNER JOIN (SELECT id_contador, valid_to FROM ref.historial_contador WHERE valid_to BETWEEN '2026-10-01' AND '2026-10-30') AS h
     ON h.id_contador = a.id_contador;
--- Medido: 12 ms · 1 M filas leídas (9,8 MB) · 65,8 MB de memoria
+-- Medido: 12 ms · 1 M filas leídas (9,8 MB) · 63,7 MB de memoria
 -- Qué observar: el cliente se pasaba, aumentó su potencia y las alertas caen.
 --    Es dict_potencia_asof lo que hace que sea correcto: se compara con la potencia DEL DÍA.
 
@@ -170,7 +170,7 @@ SELECT
 FROM gold.v_conciliacion
 GROUP BY clase_desvio
 ORDER BY clase_desvio;
--- Medido: 235 ms · 31,2 M filas leídas (825,8 MB) · 446,2 MB de memoria
+-- Medido: 237 ms · 31,2 M filas leídas (825,8 MB) · 437,8 MB de memoria
 -- Qué observar: más del 97 % de los contador-días cuadran con menos de un 0,5 %. Al resto
 -- le faltan 1 o 2 puntos (47 o 46 puntos en lugar de 48): hay que completar la curva.
 
